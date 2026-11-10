@@ -1,4 +1,4 @@
-import { extractPdfText } from "../render/pdftext";
+import { extractPdfTextDetailed } from "../render/pdftext";
 import { atsCheck, type AtsExpect, type AtsResult } from "./ats";
 import { keywordCoverage, type KeywordCoverage } from "./keywords";
 
@@ -33,7 +33,8 @@ export async function buildHardFacts(
   },
   seam: { text?: string | null } = {},
 ): Promise<HardFacts> {
-  const text = seam.text !== undefined ? seam.text : await extractPdfText(o.pdf);
+  const ex = seam.text !== undefined ? { text: seam.text } : await extractPdfTextDetailed(o.pdf);
+  const text = ex.text;
   const doc = text ?? o.contentText;
   return {
     pages: o.pages,
@@ -43,7 +44,7 @@ export async function buildHardFacts(
     underflow: o.pages === o.targetPages && o.fill !== null && o.fill < 0.85,
     word_count: doc.split(/\s+/).filter(Boolean).length,
     keywords: keywordCoverage(o.keywords, doc, o.profileText),
-    ats: atsCheck(text, o.atsExpect),
+    ats: atsCheck(text, o.atsExpect, (ex as { reason?: "missing" | "failed" }).reason),
     fabrication_warnings: o.fabricationWarnings ?? [],
   };
 }

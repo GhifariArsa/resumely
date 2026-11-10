@@ -4,7 +4,7 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Case-insensitive whole-token match: no letter/digit/#/+ directly on either side. */
 function has(text: string, kw: string): boolean {
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${esc(kw)}(?![\\p{L}\\p{N}_])`, "iu").test(text);
+  return new RegExp(`(?<![\\p{L}\\p{N}_#+])${esc(kw)}(?![\\p{L}\\p{N}_#+])`, "iu").test(text);
 }
 
 export function keywordCoverage(keywords: string[], documentText: string, profileText: string): KeywordCoverage {

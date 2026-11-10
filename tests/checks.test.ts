@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 import { compileTex } from "../src/render/compile";
-import { extractPdfText } from "../src/render/pdftext";
+import { extractPdfText, extractPdfTextDetailed } from "../src/render/pdftext";
 import { renderResume, findTemplate, builtinTemplatesDir } from "../src/render/render";
 import { loadProfile } from "../src/profile/load";
 import { ResumeContent } from "../src/pipeline/schemas";
@@ -97,3 +97,23 @@ test.skipIf(!real)("real fixture: text extraction and ATS ok", async () => {
   const r = atsCheck(text, { name: profile.about.name, email: profile.about.email, phone: profile.about.phone, headings, snippets });
   expect(r).toEqual({ status: "ok", problems: [] });
 }, 150000);
+
+test("atsCheck: genuine hyphen wrapped at line end still matches", () => {
+  const r = atsCheck("Jordan Example\nbuilt end-to-\nend pipelines", { ...expectBase, snippets: ["built end-to-end pipelines"] });
+  expect(r).toEqual({ status: "ok", problems: [] });
+});
+
+test("atsCheck skip hint distinguishes failed pdftotext", () => {
+  expect(atsCheck(null, expectBase, "failed").hint).toBe("pdftotext failed to read the PDF");
+});
+
+test("keywordCoverage: C does not match inside C# or C++", () => {
+  expect(keywordCoverage(["C"], "C# and C++", "").absent).toEqual(["C"]);
+});
+
+test("extractPdfText: bad PDF is failed, missing binary is missing", async () => {
+  if (Bun.which("pdftotext")) {
+    expect((await extractPdfTextDetailed(new Uint8Array([1, 2, 3]))).reason).toBe("failed");
+  }
+  expect((await extractPdfTextDetailed(new Uint8Array(), { bin: "nope-nope" })).reason).toBe("missing");
+});

@@ -14,27 +14,34 @@ export function normalizeText(s: string): string {
     .toLowerCase();
 }
 
-export function atsCheck(text: string | null, expect: AtsExpect): AtsResult {
+/** Normalised and hyphen-insensitive, so a real hyphen wrapped at a line end still matches. */
+const cmp = (s: string) => normalizeText(s).replace(/-/g, "");
+
+export function atsCheck(text: string | null, expect: AtsExpect, skipReason: "missing" | "failed" = "missing"): AtsResult {
   if (text === null) {
-    return { status: "skipped", problems: [], hint: "Install poppler for the ATS check (macOS: brew install poppler)" };
+    const hint =
+      skipReason === "failed"
+        ? "pdftotext failed to read the PDF"
+        : "Install poppler for the ATS check (macOS: brew install poppler)";
+    return { status: "skipped", problems: [], hint };
   }
   const problems: string[] = [];
-  const norm = normalizeText(text);
-  if (!norm.includes(normalizeText(expect.name))) problems.push("name not extractable");
-  if (expect.email && !norm.includes(normalizeText(expect.email))) problems.push("email not extractable");
+  const norm = cmp(text);
+  if (!norm.includes(cmp(expect.name))) problems.push("name not extractable");
+  if (expect.email && !norm.includes(cmp(expect.email))) problems.push("email not extractable");
   if (expect.phone) {
     const want = expect.phone.replace(/\D/g, "");
     if (want && !norm.replace(/\D/g, "").includes(want)) problems.push("phone not extractable");
   }
   let pos = 0;
   for (const h of expect.headings) {
-    const i = norm.indexOf(normalizeText(h), pos);
+    const i = norm.indexOf(cmp(h), pos);
     if (i < 0) problems.push(`heading "${h}" missing or out of order`);
-    else pos = i + normalizeText(h).length;
+    else pos = i + cmp(h).length;
   }
   if (text.includes("�")) problems.push("garbled text (U+FFFD)");
   for (const s of expect.snippets) {
-    if (!norm.includes(normalizeText(s))) problems.push(`text not continuous: "${s.slice(0, 40)}…"`);
+    if (!norm.includes(cmp(s))) problems.push(`text not continuous: "${s.slice(0, 40)}…"`);
   }
   return { status: problems.length ? "failed" : "ok", problems };
 }
