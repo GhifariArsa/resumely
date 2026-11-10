@@ -7,6 +7,13 @@ import { fetchJobUrl, isThin, readClipboard, readJobFile, resolveJobInput } from
 
 const FIXTURE = join(import.meta.dir, "fixtures/jobs/backend.md");
 
+// genuinely minified: no whitespace between tags; "- " bullet lines become <li>
+function minify(block: string): string {
+  const lines = block.split("\n");
+  if (lines.every((l) => l.startsWith("- "))) return `<ul>${lines.map((l) => `<li>${l.slice(2)}</li>`).join("")}</ul>`;
+  return `<p>${block.replace(/\n/g, "<br>")}</p>`;
+}
+
 function serve(html: string) {
   return Bun.serve({ port: 0, fetch: () => new Response(html, { headers: { "content-type": "text/html" } }) });
 }
@@ -21,11 +28,21 @@ describe("readJobFile", () => {
   test("html extracted", async () => {
     const dir = mkdtempSync(join(tmpdir(), "intake-"));
     const p = join(dir, "job.html");
-    const body = (await Bun.file(FIXTURE).text()).split("\n\n").map((x) => `<p>${x}</p>`).join("");
+    const body = (await Bun.file(FIXTURE).text()).split("\n\n").map(minify).join("");
     writeFileSync(p, `<html><head><title>t</title></head><body><article>${body}</article></body></html>`);
     const j = await readJobFile(p);
     expect(j.text).toContain("Atlas Freight");
     expect(j.text).not.toContain("<p>");
+    expect(j.text).not.toMatch(/[a-z.][A-Z][a-z]+\.[A-Z]/); // no glued boundaries
+    expect(j.text).toContain("PostgreSQL, including schema migrations on live tables.\n");
+    expect(j.text).toContain("\nModel data and tune queries in PostgreSQL");
+  });
+  test("empty files rejected", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "intake-"));
+    writeFileSync(join(dir, "a.md"), "  \n");
+    writeFileSync(join(dir, "b.html"), "<html><body></body></html>");
+    await expect(readJobFile(join(dir, "a.md"))).rejects.toThrow("Job file is empty");
+    await expect(readJobFile(join(dir, "b.html"))).rejects.toThrow("Job file is empty");
   });
   test("pdf rejected", async () => {
     await expect(readJobFile("/x/job.pdf")).rejects.toBeInstanceOf(UserError);
@@ -62,13 +79,16 @@ describe("isThin", () => {
 describe("fetchJobUrl", () => {
   test("extracts article text", async () => {
     const md = await Bun.file(FIXTURE).text();
-    const body = md.split("\n\n").map((x) => `<p>${x}</p>`).join("");
+    const body = md.split("\n\n").map(minify).join("");
     const s = serve(`<html><head><title>Job</title></head><body><nav>Menu</nav><article>${body}</article></body></html>`);
     try {
       const j = await fetchJobUrl(`http://localhost:${s.port}/job`);
       expect(j.kind).toBe("url");
       expect(j.text).toContain("Atlas Freight");
       expect(j.html).toContain("<article>");
+      expect(j.text).toContain("tables.\n");
+      expect(j.text).toContain("\nBuild event-driven pipelines");
+      expect(j.text).not.toContain("tables.Build");
     } finally {
       s.stop(true);
     }

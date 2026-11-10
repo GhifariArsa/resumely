@@ -29,8 +29,25 @@ function normalise(text: string): string {
     .trim();
 }
 
+const BLOCK_PARA = "p,h1,h2,h3,h4,h5,h6,div,section,article,ul,ol,table,blockquote,pre,header,footer";
+const BLOCK_LINE = "li,tr,dt,dd";
+
+/** Insert newline text nodes at block boundaries so textContent keeps words apart. */
+function markBlocks(document: Document): void {
+  for (const br of Array.from(document.querySelectorAll("br"))) br.replaceWith(document.createTextNode("\n"));
+  for (const el of Array.from(document.querySelectorAll(BLOCK_PARA))) {
+    el.before(document.createTextNode("\n\n"));
+    el.after(document.createTextNode("\n\n"));
+  }
+  for (const el of Array.from(document.querySelectorAll(BLOCK_LINE))) {
+    el.before(document.createTextNode("\n"));
+    el.after(document.createTextNode("\n"));
+  }
+}
+
 function htmlToText(html: string): string {
   const { document } = parseHTML(html);
+  markBlocks(document as unknown as Document);
   let text: string | null | undefined;
   try {
     text = new Readability(document as unknown as Document).parse()?.textContent;
@@ -53,8 +70,10 @@ export async function readJobFile(path: string): Promise<JobSource> {
   const f = Bun.file(path);
   if (!(await f.exists())) throw new UserError(`Job file not found: ${path}`);
   const raw = await f.text();
-  if (ext === ".html" || ext === ".htm") return { kind: "file", path, html: raw, text: htmlToText(raw) };
-  return { kind: "file", path, text: raw };
+  const isHtml = ext === ".html" || ext === ".htm";
+  const text = isHtml ? htmlToText(raw) : raw;
+  if (!text.trim()) throw new UserError(`Job file is empty: ${path}`);
+  return isHtml ? { kind: "file", path, html: raw, text } : { kind: "file", path, text };
 }
 
 const CLIP_CMDS = [["pbpaste"], ["wl-paste"], ["xclip", "-selection", "clipboard", "-o"]];
@@ -82,7 +101,7 @@ export async function readClipboard(run: (cmd: string[]) => Promise<string> = de
 export async function fetchJobUrl(url: string, fetchImpl: typeof fetch = fetch): Promise<JobSource> {
   let html: string;
   try {
-    const res = await fetchImpl(url, { headers: { "User-Agent": "resumely/0.1" }, redirect: "follow" });
+    const res = await fetchImpl(url, { headers: { "User-Agent": "resumely/0.1" }, redirect: "follow", signal: AbortSignal.timeout(15000) });
     if (!res.ok) throw new UserError(`Couldn't fetch ${url} (HTTP ${res.status})`, CLIP_HINT);
     html = await res.text();
   } catch (e) {
