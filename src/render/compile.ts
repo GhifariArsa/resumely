@@ -22,18 +22,39 @@ export async function compileTex(
         stdout: "pipe",
         stderr: "pipe",
         stdin: "ignore",
+        detached: true, // own process group so a timeout can kill pdflatex too
       });
-    } catch {
-      throw new UserError("latexmk not found", "Install a TeX distribution (e.g. TeX Live or MacTeX) that provides latexmk");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new UserError("latexmk not found", "Install a TeX distribution (e.g. TeX Live or MacTeX) that provides latexmk");
+      }
+      throw e;
     }
     let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      proc.kill("SIGKILL");
-    }, timeoutMs);
-    const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    clearTimeout(timer);
-    if (timedOut) throw new UserError("LaTeX compile timed out", `Exceeded ${Math.round(timeoutMs / 1000)}s`);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutP = new Promise<"timeout">((res) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        try {
+          process.kill(-proc.pid, "SIGKILL");
+        } catch {
+          proc.kill("SIGKILL");
+        }
+        res("timeout");
+      }, timeoutMs);
+    });
+    const work = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    let out: [string, string, number] | "timeout";
+    try {
+      out = await Promise.race([work, timeoutP]);
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (out === "timeout" || timedOut) {
+      work.catch(() => {});
+      throw new UserError("LaTeX compile timed out", `Exceeded ${Math.round(timeoutMs / 1000)}s`);
+    }
+    const [stdout, stderr] = out;
     let log = "";
     try {
       log = readFileSync(join(dir, "main.log"), "utf8");

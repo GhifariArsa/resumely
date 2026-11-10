@@ -34,3 +34,29 @@ test.skipIf(skip)("compile failure gives UserError with log hint", async () => {
     expect((e as UserError).hint).toContain("Undefined control sequence");
   }
 }, 150000);
+
+test.skipIf(skip)("times out on a looping document quickly", async () => {
+  const start = Date.now();
+  try {
+    await compileTex("\\documentclass{article}\\begin{document}\\def\\x{\\x}\\x\\end{document}", "pdflatex", { timeoutMs: 1500 });
+    throw new Error("should time out");
+  } catch (e) {
+    expect(e).toBeInstanceOf(UserError);
+    expect((e as UserError).message).toBe("LaTeX compile timed out");
+  }
+  expect(Date.now() - start).toBeLessThan(6000);
+}, 30000);
+
+test.skipIf(skip)("hostile text is escaped and compiles", async () => {
+  const c = structuredClone(content);
+  const a = { ...about, name: "Zoë José Núñez", location: "R&D Park, QC" };
+  c.sections[0]!.items[0]!.heading = "Société Générale";
+  c.sections[0]!.items[0]!.bullets[0]!.text = "snake_case ~ ^ \\ {} 100% $5M R&D C#";
+  c.skills[0]!.items = ["C#", "snake_case"];
+  const tex = renderResume(t, { about: a, content: c });
+  for (const s of ["\\_", "\\textasciitilde{}", "\\textasciicircum{}", "\\textbackslash{}", "\\{", "\\}", "R\\&D", "C\\#"]) {
+    expect(tex).toContain(s);
+  }
+  const r = await compileTex(tex, t.engine);
+  expect(r.pages).toBeGreaterThanOrEqual(1);
+}, 150000);
