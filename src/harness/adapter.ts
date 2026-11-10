@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AdapterConfig, Config } from "../config";
 import { UserError } from "../errors";
+import { spawnWithTimeout } from "../proc";
 
 export type { AdapterConfig };
 
@@ -82,48 +83,16 @@ export async function runHarness(
   const fail = (kind: HarnessErrorKind, stderr: string): never => {
     throw new HarnessError(`${opts.name} failed (${kind})`, hintFor(kind, opts.name, bin, stderr), kind);
   };
-  const start = Date.now();
-  let proc;
+  let r;
   try {
-    proc = Bun.spawn(argv, {
-      cwd: opts.workspace,
-      env: process.env,
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "ignore",
-      detached: true, // own process group so a timeout can kill the whole tree
-    });
+    r = await spawnWithTimeout(argv, { cwd: opts.workspace, env: process.env, timeoutMs: opts.timeoutMs });
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     return fail(classifyFailure(null, "", false, code), String((e as Error).message ?? e));
   }
-  let timedOut = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeoutP = new Promise<"timeout">((res) => {
-    timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        process.kill(-proc.pid, "SIGKILL");
-      } catch {
-        proc.kill("SIGKILL");
-      }
-      res("timeout");
-    }, opts.timeoutMs);
-  });
-  const work = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-  let out: [string, string, number] | "timeout";
-  try {
-    out = await Promise.race([work, timeoutP]);
-  } finally {
-    clearTimeout(timer);
-  }
-  if (out === "timeout" || timedOut) {
-    work.catch(() => {});
-    return fail("timeout", "");
-  }
-  const [stdout, stderr, exitCode] = out;
-  writeFileSync(join(opts.workspace, "stdout.log"), stdout);
-  writeFileSync(join(opts.workspace, "stderr.log"), stderr);
-  if (exitCode !== 0) return fail(classifyFailure(exitCode, stderr, false), stderr);
-  return { stdout, stderr, durationMs: Date.now() - start };
+  writeFileSync(join(opts.workspace, "stdout.log"), r.stdout);
+  writeFileSync(join(opts.workspace, "stderr.log"), r.stderr);
+  if (r.timedOut) return fail("timeout", r.stderr);
+  if (r.exitCode !== 0) return fail(classifyFailure(r.exitCode, r.stderr, false), r.stderr);
+  return { stdout: r.stdout, stderr: r.stderr, durationMs: r.durationMs };
 }

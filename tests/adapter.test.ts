@@ -86,6 +86,14 @@ describe("runHarness", () => {
     expect(Date.now() - t0).toBeLessThan(3000);
   });
 
+  test("timeout still writes partial logs", async () => {
+    const ws = tmp();
+    const e = await runHarness({ command: ["bash", "-c", "echo partial; sleep 5"] }, { ...base(ws), timeoutMs: 300 }).catch((x) => x);
+    expect(e.kind).toBe("timeout");
+    expect(readFileSync(join(ws, "stdout.log"), "utf8")).toContain("partial");
+    expect(existsSync(join(ws, "stderr.log"))).toBe(true);
+  });
+
   test("timeout kills grandchildren holding pipes", async () => {
     const t0 = Date.now();
     const e = await runHarness({ command: ["sh", "-c", "sleep 5 & sleep 5"] }, { ...base(tmp()), timeoutMs: 200 }).catch((x) => x);

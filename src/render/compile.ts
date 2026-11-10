@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UserError } from "../errors";
+import { spawnWithTimeout } from "../proc";
 import type { TemplateMeta } from "./render";
 
 const FLAG = { pdflatex: "-pdf", xelatex: "-xelatex", lualatex: "-lualatex" } as const;
@@ -15,14 +16,11 @@ export async function compileTex(
   const dir = mkdtempSync(join(tmpdir(), "resumely-tex-"));
   try {
     writeFileSync(join(dir, "main.tex"), tex);
-    let proc;
+    let res;
     try {
-      proc = Bun.spawn(["latexmk", FLAG[engine], "-interaction=nonstopmode", "-halt-on-error", "main.tex"], {
+      res = await spawnWithTimeout(["latexmk", FLAG[engine], "-interaction=nonstopmode", "-halt-on-error", "main.tex"], {
         cwd: dir,
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: "ignore",
-        detached: true, // own process group so a timeout can kill pdflatex too
+        timeoutMs,
       });
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
@@ -30,38 +28,17 @@ export async function compileTex(
       }
       throw e;
     }
-    let timedOut = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const timeoutP = new Promise<"timeout">((res) => {
-      timeout = setTimeout(() => {
-        timedOut = true;
-        try {
-          process.kill(-proc.pid, "SIGKILL");
-        } catch {
-          proc.kill("SIGKILL");
-        }
-        res("timeout");
-      }, timeoutMs);
-    });
-    const work = Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    let out: [string, string, number] | "timeout";
-    try {
-      out = await Promise.race([work, timeoutP]);
-    } finally {
-      clearTimeout(timeout);
-    }
-    if (out === "timeout" || timedOut) {
-      work.catch(() => {});
+    if (res.timedOut) {
       throw new UserError("LaTeX compile timed out", `Exceeded ${Math.round(timeoutMs / 1000)}s`);
     }
-    const [stdout, stderr] = out;
+    const { stdout, stderr } = res;
     let log = "";
     try {
       log = readFileSync(join(dir, "main.log"), "utf8");
     } catch {
       log = stdout + stderr;
     }
-    if (proc.exitCode !== 0) {
+    if (res.exitCode !== 0) {
       const err = log.split("\n").find((l) => l.startsWith("!")) ?? (stderr.trim().split("\n")[0] || "see LaTeX log");
       throw new UserError("LaTeX compile failed", err);
     }
