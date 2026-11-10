@@ -3,7 +3,7 @@
 // FAKE_HARNESS_SCRIPT: JSON file { "<step>": [ { "<relative path>": <json | "INVALID"> }, ... ] }
 //   Array index = attempt number for that workspace (counted in <workspace>/.fake-count); extra attempts
 //   reuse the last element; {} writes nothing. An attempt may also set "$stderr" (printed to stderr) and
-//   "$exit" (exit code). Every call appends "<step>\n" to <script>.calls.
+//   "$exit" (exit code). Every call (including failing ones) appends "<step>\n" to <script>.calls.
 // FAKE_HARNESS_EXIT=1: fail with a rate-limit message.
 // FAKE_HARNESS_FAIL_STEP=<step>: fail with a rate-limit message for that step only.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -11,13 +11,13 @@ import { basename, dirname, join } from "node:path";
 
 const workspace = process.argv[2] ?? process.cwd();
 const step = basename(workspace);
+const scriptPath = process.env.FAKE_HARNESS_SCRIPT;
+if (scriptPath) appendFileSync(`${scriptPath}.calls`, `${step}\n`);
 if (process.env.FAKE_HARNESS_EXIT === "1" || process.env.FAKE_HARNESS_FAIL_STEP === step) {
   console.error("usage limit reached");
   process.exit(1);
 }
-const scriptPath = process.env.FAKE_HARNESS_SCRIPT;
 if (scriptPath) {
-  appendFileSync(`${scriptPath}.calls`, `${step}\n`);
   mkdirSync(workspace, { recursive: true });
   const countPath = join(workspace, ".fake-count");
   const idx = existsSync(countPath) ? Number(readFileSync(countPath, "utf8")) + 1 : 0;

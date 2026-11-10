@@ -1,0 +1,9 @@
+{
+  "company": "Atlas Freight",
+  "summary": "Atlas Freight runs freight logistics software for mid-size carriers.",
+  "facts": [
+    { "id": "co-1", "text": "Atlas Freight builds dispatch software for regional carriers.", "source_url": "https://atlasfreight.example/product" },
+    { "id": "co-2", "text": "The engineering team runs its event pipeline on Kafka.", "source_url": "https://atlasfreight.example/blog/events" }
+  ],
+  "sources": ["https://atlasfreight.example/product", "https://atlasfreight.example/blog/events"]
+}

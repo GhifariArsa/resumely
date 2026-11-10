@@ -2,7 +2,7 @@ import type { z } from "zod";
 import type { EntryType, Profile } from "../profile/schema";
 import { hasToken, scanClaims } from "../checks/fabrication";
 import { unsupportedChars } from "../render/latex-escape";
-import { ParsedJob, ResumeContent } from "./schemas";
+import { CompanyResearch, ParsedJob, ResumeContent } from "./schemas";
 
 export type ValidationResult<T> = { ok: true; value: T; warnings: string[] } | { ok: false; errors: string[] };
 
@@ -114,4 +114,33 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful" 
     });
   });
   return errors.length ? { ok: false, errors } : { ok: true, value, warnings };
+}
+
+export function validateResearch(raw: unknown): ValidationResult<CompanyResearch> {
+  const r = CompanyResearch.safeParse(raw);
+  if (!r.success) return { ok: false, errors: schemaErrors(r.error.issues) };
+  const value = r.data;
+  const errors: string[] = [];
+  const sources = new Set(value.sources);
+  const seen = new Set<string>();
+  const checkChars = (where: string, text: string) => {
+    for (const c of unsupportedChars(text)) {
+      errors.push(`${where}: unsupported character "${c}" (U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")})`);
+    }
+  };
+  checkChars("company", value.company);
+  checkChars("summary", value.summary);
+  value.facts.forEach((f, i) => {
+    const at = `facts[${i}]`;
+    if (seen.has(f.id)) errors.push(`${at}: duplicate fact id "${f.id}"`);
+    seen.add(f.id);
+    if (!/^https?:\/\//i.test(f.source_url)) errors.push(`${at}.source_url: must be an http(s) URL`);
+    else if (!sources.has(f.source_url)) errors.push(`${at}.source_url: "${f.source_url}" is not listed in sources`);
+    checkChars(`${at}.text`, f.text);
+  });
+  value.sources.forEach((u, i) => {
+    if (!/^https?:\/\//i.test(u)) errors.push(`sources[${i}]: must be an http(s) URL`);
+    checkChars(`sources[${i}]`, u);
+  });
+  return errors.length ? { ok: false, errors } : { ok: true, value, warnings: [] };
 }

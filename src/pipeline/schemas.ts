@@ -41,6 +41,17 @@ export const ResumeContent = z.object({
 });
 export type ResumeContent = z.infer<typeof ResumeContent>;
 
-export function jsonSchemaFor(kind: "parsed-job" | "resume"): object {
-  return z.toJSONSchema(kind === "parsed-job" ? ParsedJob : ResumeContent) as object;
+export const CompanyResearch = z.object({
+  company: z.string().min(1),
+  summary: z.string().min(1),
+  facts: z
+    .array(z.object({ id: z.string().regex(/^co-\d+$/), text: z.string().min(1), source_url: z.string().min(1) }))
+    .min(1)
+    .max(15),
+  sources: z.array(z.string()),
+});
+export type CompanyResearch = z.infer<typeof CompanyResearch>;
+
+export function jsonSchemaFor(kind: "parsed-job" | "resume" | "company"): object {
+  return z.toJSONSchema(kind === "parsed-job" ? ParsedJob : kind === "company" ? CompanyResearch : ResumeContent) as object;
 }
