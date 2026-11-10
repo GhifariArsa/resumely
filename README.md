@@ -1,6 +1,6 @@
 # resumely
 
-Tailor your resume to a job posting using the coding agent you already have. You keep a profile of markdown files describing your experience. `resumely apply` parses a job description, then drives a headless coding-agent CLI (claude, codex or pi) to select and reword real entries from your profile into a one-page resume, compiled to PDF with LaTeX. Every bullet is traced back to the profile entries it came from, titles, employers, locations and dates are filled in from your entries rather than written by the agent, skills must exist in your profile, and requirements your profile doesn't cover are listed as gaps instead of being invented.
+Tailor your resume and a cover letter to a job posting using the coding agent you already have. You keep a profile of markdown files describing your experience. `resumely apply` parses a job description, researches the company on the web, then drives a headless coding-agent CLI (claude, codex or pi) to select and reword real entries from your profile into a one-page resume and a one-page cover letter, compiled to PDF with LaTeX. Every bullet is traced back to the profile entries it came from, titles, employers, locations and dates are filled in from your entries rather than written by the agent, skills must exist in your profile, and requirements your profile doesn't cover are listed as gaps instead of being invented.
 
 ## Prerequisites
 
@@ -25,7 +25,44 @@ resumely ls                  # list applications
 resumely open <app>          # open the latest resume PDF (--version N for another)
 ```
 
-Other options: `apply [input] [--clip] [--harness <name>] [--template <id>] [--no-open]`, `render <app> --template <id>` to re-render with another template, `profile show [id]`. Set `RESUMELY_HOME` to use a different data root.
+### apply
+
+```sh
+resumely apply [input] [--clip] [--harness <name>] [--template <id>] [--pages <n>]
+               [--stretch] [--no-cover] [--no-research] [--no-review] [--review]
+               [--into <app>] [--new] [--no-open]
+```
+
+- `--stretch`: allow inferred claims (reasonable but not stated in your profile). They are printed as `inferred claims to review:` and marked in the trace; default mode is truthful.
+- `--no-cover`, `--no-research`, `--no-review`: skip the cover letter, the company research, or the review loop.
+- `--review`: pause after the job is parsed so you can confirm it (interactive terminals only).
+- `--pages <n>`: resume page target (default 1).
+- `--into <app>` adds a new version to an existing application; `--new` creates a separate one. If a duplicate of the same job exists and you pass neither, you are asked.
+
+Other commands:
+
+- `ls [--status <s>] [--company <text>]`, `open <app> [--cover] [--version N]`
+- `render <app> [--cover] [--template <id>] [--version N]` re-renders a saved version (for example with another template) without calling the agent
+- `status <app> <drafted|applied|interviewing|rejected|offer>`: `applied` is refused while a document is not ready unless you pass `--force`
+- `note <app> <text...>`: dated note on an application
+- `export <app> [--version N] [--to <dir>]`: copy the send-ready PDFs (default `~/Desktop`)
+- `profile show [id]`, `profile context`
+
+Set `RESUMELY_HOME` to use a different data root. Every run produces versioned outputs under `applications/<date>-<company>-<role>/{resume,cover-letter}/vN/` (PDF, source, trace, `review.json`, `meta.json`).
+
+## Cover letters and voice samples
+
+The cover letter is written from your profile, the job and the company research, never from the finished resume. To make it sound like you, put 1 to 3 samples of your own writing (plain markdown, a few hundred words each) in `profile/voice/`. They are used only as a style reference; without them the letter is still written, in a plainer default voice. Letters are checked for banned filler phrases and for claims that no profile entry or research fact supports.
+
+## Company research and privacy
+
+Before writing, the agent searches the web for the company (what it does, recent news, engineering culture) using the harness's own web tools. Only the company name and role title go into those searches; your profile is not part of the research step. Facts must carry a source URL. If nothing reliable is found (an unknown or fictional company, say) the letter is written from the posting alone rather than guessing, and `apply` prints `warning: research failed`. `claude` and `codex` have research presets; `pi` has no web tools, so research is skipped with a warning unless you set `research_command` on your adapter. `--no-research` skips it.
+
+## Review loop and ready gates
+
+Each document goes through: write, compile, hard checks (ATS-readable text, page count, trace of every claim to profile entries), an HR-persona review, and up to 2 revision rounds. Resume and cover letter run concurrently. Expect roughly 10 to 17 minutes per application with the real harnesses (measured: claude about 12 min, codex about 12 min, pi about 17 min), since each stage is a separate headless agent call. `meta.json` records `rounds`, `reviewed_final` (whether the final text was reviewed and passed), `research` and `review_verdict`.
+
+A version is **ready** when an ATS can read the PDF and it fits its page target. If not, `apply` prints `not ready: <reason>`, exits with status 1, and `status ... applied` is refused without `--force`. A version that still got a `revise` verdict after the last round is still ready, but check `review.json` for what the reviewer wanted. Requirements your profile can't back are listed as `gaps:` (add them to your profile if true), not invented.
 
 ## Profile format
 
@@ -92,16 +129,16 @@ check = ["pi", "--version"]
 
 The pi preset defaults to pi's default provider (google). If that provider isn't authenticated, override the adapter as above with a provider you have set up (`pi auth check --provider <name>`); pi requires a configured provider.
 
-## Status: P1
+## Status: P2
 
 Works now:
 
 - `init`, `profile show`, `profile context`
-- `apply`: job parse, tailored one-page resume, gaps, trace
-- `ls`, `open`, `render`
+- `apply`: job parse, company research, tailored resume and cover letter with review loop, gaps, traces, `--stretch`
+- Versioned applications: `ls`, `open`, `render`, `status`, `note`, `export`
 - Private-content withholding
-- claude and codex verified end to end; pi verified with a provider override (see [Adapters](#adapters))
+- claude and codex verified end to end including web research; pi verified with a provider override (research skipped, no web tools)
 
 Coming next:
 
-- Roadmap beyond P1: see [design.md](design.md)
+- Roadmap beyond P2: see [design.md](design.md)
