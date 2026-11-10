@@ -8,6 +8,7 @@ import { applyJob, renderApplication, formatApplicationList } from "../src/pipel
 import { readJobFile } from "../src/job/intake";
 import { findApplication, listApplications } from "../src/application/store";
 import { UserError } from "../src/errors";
+import { HarnessError } from "../src/harness/adapter";
 
 const fx = join(import.meta.dir, "fixtures");
 const hasLatex = Bun.which("latexmk") !== null;
@@ -78,13 +79,26 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
     expect(trace[1]).toMatchObject({ section: "Experience", item: "Senior Software Engineer", bullet: 0, basis: "direct" });
   });
 
-  test("retry after invalid JSON keeps errors.md", async () => {
+  test("retry after invalid JSON keeps errors.md and per-attempt logs", async () => {
     script({ "0": parseOut, "1": { "out/resume.json": "INVALID" }, "2": writeOut(resume) });
     const { app } = await run();
     expect(existsSync(join(app.dir, "resume/v1/resume.json"))).toBe(true);
     const runs = layout(root).runs;
     const runDir = join(runs, readdirSync(runs)[0]!);
     expect(existsSync(join(runDir, "write/errors.md"))).toBe(true);
+    for (const f of ["stdout.log", "stderr.log", "stdout.2.log", "stderr.2.log"]) expect(existsSync(join(runDir, "write", f))).toBe(true);
+    expect(existsSync(join(runDir, "parse/stdout.2.log"))).toBe(false);
+  });
+
+  test("harness failure in the write step names the write workspace", async () => {
+    script({ "0": parseOut, "1": { $stderr: "model overloaded, giving up", $exit: 1 } });
+    const e = (await run().catch((x) => x)) as HarnessError;
+    expect(e).toBeInstanceOf(HarnessError);
+    expect(e.kind).toBe("unknown");
+    const runs = layout(root).runs;
+    const ws = join(runs, readdirSync(runs)[0]!, "write");
+    expect(e.hint).toBe(`model overloaded, giving up (logs: ${ws})`);
+    expect(readFileSync(join(ws, "stderr.log"), "utf8")).toContain("model overloaded");
   });
 
   test("render into a new version with another template", async () => {

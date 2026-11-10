@@ -46,20 +46,23 @@ export class HarnessError extends UserError {
   }
 }
 
+/** `output` is everything the harness printed (stdout + stderr): some CLIs report errors on stdout. */
 export function classifyFailure(
   _exitCode: number | null,
-  stderr: string,
+  output: string,
   timedOut: boolean,
   spawnErrorCode?: string,
 ): HarnessErrorKind {
   if (spawnErrorCode === "ENOENT") return "not_installed";
   if (timedOut) return "timeout";
-  if (/usage limit|rate.?limit|429|quota/i.test(stderr)) return "rate_limit";
-  if (/log ?in|logged out|unauthori[sz]ed|401|auth/i.test(stderr)) return "auth";
+  if (/usage limit|rate.?limit|\b429\b|quota/i.test(output)) return "rate_limit";
+  if (/log ?in|logged out|unauthori[sz]ed|\b401\b|\bauth(entication|orization)?\b/i.test(output)) return "auth";
   return "unknown";
 }
 
-function hintFor(kind: HarnessErrorKind, name: string, bin: string, stderr: string): string | undefined {
+const lastLine = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean).at(-1);
+
+function hintFor(kind: HarnessErrorKind, name: string, bin: string, out: { stdout: string; stderr: string }): string | undefined {
   switch (kind) {
     case "not_installed":
       return `Install ${bin} or choose another harness with --harness`;
@@ -70,29 +73,31 @@ function hintFor(kind: HarnessErrorKind, name: string, bin: string, stderr: stri
     case "timeout":
       return "Raise timeout_minutes in config.toml";
     default:
-      return stderr.trim().split("\n").slice(-1)[0] || undefined;
+      return lastLine(out.stderr) ?? lastLine(out.stdout);
   }
 }
 
 export async function runHarness(
   a: AdapterConfig,
-  opts: { workspace: string; prompt: string; timeoutMs: number; model?: string; name: string },
+  /** `logSuffix` distinguishes attempts: "" → stdout.log, ".2" → stdout.2.log. */
+  opts: { workspace: string; prompt: string; timeoutMs: number; model?: string; name: string; logSuffix?: string },
 ): Promise<{ stdout: string; stderr: string; durationMs: number }> {
   const argv = expandCommand(a, opts);
   const bin = a.command[0] ?? "";
-  const fail = (kind: HarnessErrorKind, stderr: string): never => {
-    throw new HarnessError(`${opts.name} failed (${kind})`, hintFor(kind, opts.name, bin, stderr), kind);
+  const fail = (kind: HarnessErrorKind, out: { stdout: string; stderr: string }): never => {
+    throw new HarnessError(`${opts.name} failed (${kind})`, hintFor(kind, opts.name, bin, out), kind);
   };
   let r;
   try {
     r = await spawnWithTimeout(argv, { cwd: opts.workspace, env: process.env, timeoutMs: opts.timeoutMs });
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
-    return fail(classifyFailure(null, "", false, code), String((e as Error).message ?? e));
+    return fail(classifyFailure(null, "", false, code), { stdout: "", stderr: String((e as Error).message ?? e) });
   }
-  writeFileSync(join(opts.workspace, "stdout.log"), r.stdout);
-  writeFileSync(join(opts.workspace, "stderr.log"), r.stderr);
-  if (r.timedOut) return fail("timeout", r.stderr);
-  if (r.exitCode !== 0) return fail(classifyFailure(r.exitCode, r.stderr, false), r.stderr);
+  const suffix = opts.logSuffix ?? "";
+  writeFileSync(join(opts.workspace, `stdout${suffix}.log`), r.stdout);
+  writeFileSync(join(opts.workspace, `stderr${suffix}.log`), r.stderr);
+  if (r.timedOut) return fail("timeout", r);
+  if (r.exitCode !== 0) return fail(classifyFailure(r.exitCode, `${r.stdout}\n${r.stderr}`, false), r);
   return { stdout: r.stdout, stderr: r.stderr, durationMs: r.durationMs };
 }

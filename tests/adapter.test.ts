@@ -61,6 +61,11 @@ describe("classifyFailure", () => {
     [1, "Please log in", false, undefined, "auth"],
     [1, "401 Unauthorized", false, undefined, "auth"],
     [1, "boom", false, undefined, "unknown"],
+    [1, "authentication failed", false, undefined, "auth"],
+    [1, "Authorization required", false, undefined, "auth"],
+    [1, "error in author field", false, undefined, "unknown"],
+    [1, "processed 14290 tokens then crashed", false, undefined, "unknown"],
+    [1, "id 4013 not found", false, undefined, "unknown"],
   ] as const)("%p %p timedOut=%p %p -> %p", (code, stderr, timedOut, spawn, kind) => {
     expect(classifyFailure(code, stderr, timedOut, spawn)).toBe(kind);
   });
@@ -134,6 +139,27 @@ describe("runHarness", () => {
     } finally {
       delete process.env.FAKE_HARNESS_EXIT;
     }
+  });
+
+  test("classifies on stdout too", async () => {
+    const e = await runHarness({ command: ["sh", "-c", "echo 'Error: rate limit exceeded'; exit 1"] }, base(tmp())).catch((x) => x);
+    expect(e.kind).toBe("rate_limit");
+  });
+
+  test("unknown hint: last non-empty stderr line, else stdout", async () => {
+    const both = await runHarness({ command: ["sh", "-c", "echo out-line; echo err-line >&2; echo >&2; exit 1"] }, base(tmp())).catch((x) => x);
+    expect(both.kind).toBe("unknown");
+    expect(both.hint).toBe("err-line");
+    const outOnly = await runHarness({ command: ["sh", "-c", "echo first; echo 'it broke'; echo; exit 1"] }, base(tmp())).catch((x) => x);
+    expect(outOnly.hint).toBe("it broke");
+  });
+
+  test("logSuffix names per-attempt logs", async () => {
+    const ws = tmp();
+    await runHarness({ command: ["sh", "-c", "echo hi; echo there >&2"] }, { ...base(ws), logSuffix: ".2" });
+    expect(readFileSync(join(ws, "stdout.2.log"), "utf8")).toBe("hi\n");
+    expect(readFileSync(join(ws, "stderr.2.log"), "utf8")).toBe("there\n");
+    expect(existsSync(join(ws, "stdout.log"))).toBe(false);
   });
 
   test("auth hint uses name", async () => {

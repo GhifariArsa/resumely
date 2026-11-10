@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node
 import { join } from "node:path";
 import type { AdapterConfig } from "../config";
 import { UserError } from "../errors";
-import { runHarness } from "../harness/adapter";
+import { HarnessError, runHarness } from "../harness/adapter";
 import type { ValidationResult } from "./validate";
 
 export function createRunWorkspace(runsDir: string, step: "parse" | "write", runId?: string): string {
@@ -44,7 +44,13 @@ export async function runAgentStep<T>(opts: {
   let prompt = BASE_PROMPT;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     rmSync(outPath, { force: true });
-    await runHarness(opts.adapter, { workspace, prompt, timeoutMs: opts.timeoutMs, name: opts.name });
+    try {
+      const logSuffix = attempt === 0 ? "" : `.${attempt + 1}`;
+      await runHarness(opts.adapter, { workspace, prompt, timeoutMs: opts.timeoutMs, name: opts.name, logSuffix });
+    } catch (e) {
+      if (e instanceof HarnessError) throw new HarnessError(e.message, `${e.hint ? `${e.hint} ` : ""}(logs: ${workspace})`, e.kind);
+      throw e;
+    }
 
     let errors: string[];
     if (!existsSync(outPath)) {
