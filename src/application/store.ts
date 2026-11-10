@@ -110,11 +110,20 @@ function versions(app: Application, kind: Kind): number[] {
     .sort((a, b) => a - b);
 }
 
+/** Claim the next `v<N>` directory. The leaf mkdir is exclusive, so concurrent applies never share a version. */
 export function nextVersionDir(app: Application, kind: Kind): { dir: string; version: number } {
-  const version = (versions(app, kind).at(-1) ?? 0) + 1;
-  const dir = join(app.dir, kind, `v${version}`);
-  mkdirSync(dir, { recursive: true });
-  return { dir, version };
+  mkdirSync(join(app.dir, kind), { recursive: true });
+  let version = (versions(app, kind).at(-1) ?? 0) + 1;
+  for (;;) {
+    const dir = join(app.dir, kind, `v${version}`);
+    try {
+      mkdirSync(dir);
+      return { dir, version };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      version = Math.max(version, versions(app, kind).at(-1) ?? 0) + 1;
+    }
+  }
 }
 
 export function latestVersion(app: Application, kind: Kind): { dir: string; version: number } | null {

@@ -29,10 +29,15 @@ export function setStatus(app: Application, status: ApplicationMeta["status"], o
   return app;
 }
 
-/** Copy the resume and cover-letter PDFs into `to` without overwriting; returns the new paths. */
+/**
+ * Copy the PDFs of whichever documents exist (resume — `version` if given — and cover letter) into `to` without
+ * overwriting; returns the new paths. Errors only when the application has neither.
+ */
 export function exportApplication(app: Application, o: { to: string; version?: number }): string[] {
-  const files = [pdfIn(pickVersion(app, "resume", o.version).dir)];
+  const files: string[] = [];
+  if (o.version !== undefined || latestVersion(app, "resume")) files.push(pdfIn(pickVersion(app, "resume", o.version).dir));
   if (latestVersion(app, "cover-letter")) files.push(pdfIn(pickVersion(app, "cover-letter").dir));
+  if (files.length === 0) throw new UserError(`${app.slug} has no documents yet`, "Run: resumely apply");
   const dests = files.map((f) => join(o.to, basename(f)));
   for (const d of dests) if (existsSync(d)) throw new UserError(`${d} already exists`, "Move it or pick another --to directory");
   mkdirSync(o.to, { recursive: true });

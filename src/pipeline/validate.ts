@@ -217,6 +217,8 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
   chars("closing", value.closing);
   if (!CLOSING.test(value.closing)) errors.push('closing: use a simple sign-off like "Sincerely,"');
 
+  if (value.paragraphs.filter((p) => p.entry_ids.length > 0).length < 2) errors.push("cover letter needs at least two evidence paragraphs citing your entries");
+
   const words = value.paragraphs.reduce((n, p) => n + p.text.split(/\s+/).filter(Boolean).length, 0);
   if (words < 200 || words > 400) errors.push(`word count ${words} (must be 200–400)`);
 

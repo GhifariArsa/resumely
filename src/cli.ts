@@ -138,7 +138,9 @@ program
   .option("--version <n>", "version (default latest)")
   .action(async (query: string, o: { cover?: boolean; version?: string }) => {
     const app = findApplication(layout(dataRoot()).applications, query);
-    await openFile(resolveOpenTarget(app, parseVersion(o.version), o.cover ? "cover-letter" : "resume"));
+    const t = resolveOpenTarget(app, parseVersion(o.version), o.cover ? "cover-letter" : undefined);
+    console.log(`Opening ${t.label}: ${t.path}`);
+    await openFile(t.path);
   });
 
 program

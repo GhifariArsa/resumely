@@ -174,3 +174,48 @@ test("formatApplicationList filters are applied by the caller helper", () => {
   expect(formatApplicationList(apps, { status: "offer" })).toContain("No applications match");
   expect(formatApplicationList(apps, { company: "acm" })).toContain("Acme");
 });
+
+test("exportApplication copies whatever documents exist; errors only when neither does", () => {
+  const coverOnly = appWithVersions({ resume: false, cover: true });
+  const to = tmp();
+  expect(exportApplication(coverOnly.app, { to }).map((p: string) => p.split("/").pop())).toEqual(["cover-letter.pdf"]);
+  const resumeOnly = appWithVersions({ resume: true, cover: false });
+  expect(exportApplication(resumeOnly.app, { to: tmp() }).map((p: string) => p.split("/").pop())).toEqual(["resume.pdf"]);
+  const none = appWithVersions({ resume: false, cover: false });
+  expect(() => exportApplication(none.app, { to: tmp() })).toThrow(/has no documents yet/);
+});
+
+test("resolveOpenTarget falls back to the cover letter when there is no resume", async () => {
+  const { resolveOpenTarget } = await import("../src/pipeline/apply");
+  const coverOnly = appWithVersions({ resume: false, cover: true });
+  const t = resolveOpenTarget(coverOnly.app);
+  expect(t.label).toBe("cover letter v1");
+  expect(t.path.endsWith("cover-letter/v1/cover-letter.pdf")).toBe(true);
+  const both = appWithVersions();
+  expect(resolveOpenTarget(both.app).label).toBe("resume v1");
+  expect(resolveOpenTarget(both.app, undefined, "cover-letter").label).toBe("cover letter v1");
+  // an explicit version or --cover never falls back
+  expect(() => resolveOpenTarget(coverOnly.app, 1)).toThrow(/no resume v1/);
+  expect(() => resolveOpenTarget(appWithVersions({ resume: true, cover: false }).app, undefined, "cover-letter")).toThrow(/no cover letter versions/);
+});
+
+test("nextVersionDir is safe under concurrent applies (separate processes take distinct versions)", async () => {
+  const d = tmp();
+  const a = createApplication(d, job("A", "B"), src);
+  const file = join(d, "race.ts");
+  writeFileSync(
+    file,
+    `import { nextVersionDir, findApplication } from ${JSON.stringify(join(import.meta.dir, "../src/application/store"))};
+const a = findApplication(process.argv[2], process.argv[3]);
+const out = [];
+for (let i = 0; i < 25; i++) out.push(nextVersionDir(a, "cover-letter").version);
+console.log(out.join(","));`,
+  );
+  const procs = Array.from({ length: 4 }, () => Bun.spawn(["bun", file, d, a.slug], { stdout: "pipe" }));
+  const outs = await Promise.all(procs.map((p) => new Response(p.stdout).text()));
+  await Promise.all(procs.map((p) => p.exited));
+  const all = outs.flatMap((o) => o.trim().split(",").map(Number));
+  expect(all.length).toBe(100);
+  expect(new Set(all).size).toBe(100);
+  expect(latestVersion(a, "cover-letter")!.version).toBe(100);
+}, 30000);

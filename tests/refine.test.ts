@@ -418,8 +418,9 @@ describe("revision helpers", () => {
   test("revisionInstructions carries the revision rules", async () => {
     const t = await revisionInstructions();
     expect(t).toContain(
-      "Read previous.json, review.json, hard-facts.json. Address every request that can be met truthfully. A request you can't meet truthfully becomes a gap, not a claim. Fix overflow by trimming the weakest bullets; on underflow, add only supported content.",
+      "Read previous.json, review.json, hard-facts.json. Address every request that can be met truthfully. A request you can't meet truthfully is never a claim. Fix overflow by trimming the weakest bullets; on underflow, add only supported content.",
     );
+    expect(t).toContain("record it in `gaps` only when the request names a requirement from the posting; drop any other request you can't meet, without noting it anywhere.");
   });
 
   test("writeRevisionFiles writes previous, review and hard facts", () => {

@@ -257,6 +257,12 @@ export function formatApplicationList(apps: Application[], filter: { status?: st
   return rows.map((r) => r.map((c, i) => c.padEnd(w[i]!)).join("  ").trimEnd()).join("\n");
 }
 
-export function resolveOpenTarget(app: Application, version?: number, kind: DocumentKind = "resume"): string {
-  return pdfIn(pickVersion(app, kind, version).dir);
+/**
+ * The PDF `open` shows: `kind` when given; otherwise the resume, falling back to the cover letter when the
+ * application has no resume (and no version was asked for). `label` names what was picked, e.g. "resume v2".
+ */
+export function resolveOpenTarget(app: Application, version?: number, kind?: DocumentKind): { path: string; label: string } {
+  const k: DocumentKind = kind ?? (version === undefined && !latestVersion(app, "resume") && latestVersion(app, "cover-letter") ? "cover-letter" : "resume");
+  const v = pickVersion(app, k, version);
+  return { path: pdfIn(v.dir), label: `${k === "resume" ? "resume" : "cover letter"} v${v.version}` };
 }

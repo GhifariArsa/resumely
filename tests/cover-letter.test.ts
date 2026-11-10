@@ -178,3 +178,12 @@ describe("R15: the job posting is a proper-noun source for cover letters", () =>
     expect(errs(withP(1, letter.paragraphs[1]!.text + " I have 5+ years of experience."), o).some((e) => e.includes('"5"'))).toBe(true);
   });
 });
+
+test("at least two paragraphs must cite an entry", () => {
+  const noEvidence = { ...letter, paragraphs: letter.paragraphs.map((p, k) => (k === 0 || k === 1 ? p : { ...p, entry_ids: [] })) };
+  // paragraph 2 now cites nothing, so its numbers and names lose their sources too; check only the evidence rule
+  expect(errs(noEvidence)).toContain("cover letter needs at least two evidence paragraphs citing your entries");
+  expect(errs(letter)).not.toContain("cover letter needs at least two evidence paragraphs citing your entries");
+  const two = { ...letter, paragraphs: letter.paragraphs.map((p, k) => (k === 3 ? { ...p, entry_ids: [] } : p)) };
+  expect(errs(two)).toEqual([]);
+});
