@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parse, stringify } from "smol-toml";
 import { UserError } from "../errors";
 import type { JobSource } from "../job/intake";
 import type { ParsedJob } from "../pipeline/schemas";
+import { notReadyReasons, pickVersion } from "../pipeline/version";
 import { slugify } from "./slug";
 
 export { slugify, sendReadyName } from "./slug";
@@ -15,6 +16,9 @@ export type ApplicationMeta = {
   status: "drafted" | "applied" | "interviewing" | "rejected" | "offer";
   notes: string[];
   source: { kind: string; url?: string };
+  /** Versions actually sent when the status became `applied`. */
+  sent?: { resume?: number; cover_letter?: number };
+  applied_at?: string;
 };
 export type Application = { dir: string; slug: string; meta: ApplicationMeta };
 type Kind = "resume" | "cover-letter";
@@ -60,6 +64,8 @@ function readApplication(dir: string): Application | null {
       notes: raw.notes ?? [],
       source: raw.source ?? { kind: "file" },
     };
+    if (raw.sent) meta.sent = raw.sent;
+    if (typeof raw.applied_at === "string") meta.applied_at = raw.applied_at;
     return { dir, slug: basename(dir), meta };
   } catch {
     return null;
@@ -156,4 +162,68 @@ export function saveExtraRaw(app: Application, text: string): string {
   mkdirSync(join(app.dir, "job"), { recursive: true });
   writeFileSync(path, text);
   return path;
+}
+
+export function saveMeta(app: Application): void {
+  writeFileSync(join(app.dir, "application.toml"), stringify(app.meta));
+}
+
+const KINDS: { kind: Kind; key: "resume" | "cover_letter"; label: string }[] = [
+  { kind: "resume", key: "resume", label: "resume" },
+  { kind: "cover-letter", key: "cover_letter", label: "cover letter" },
+];
+
+function readJsonOr(path: string): any {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Set the status. `applied` records which versions were sent and refuses not-ready ones unless `force`. */
+export function setStatus(app: Application, status: ApplicationMeta["status"], o: { force?: boolean; now?: Date } = {}): Application {
+  if (status === "applied") {
+    const sent: NonNullable<ApplicationMeta["sent"]> = {};
+    for (const { kind, key, label } of KINDS) {
+      const v = latestVersion(app, kind);
+      if (!v) continue;
+      if (readJsonOr(join(v.dir, "meta.json"))?.ready === false && !o.force) {
+        const checks = readJsonOr(join(v.dir, "checks.json"));
+        const reasons = checks?.ats ? notReadyReasons(checks) : [];
+        throw new UserError(`${label} v${v.version} is not ready: ${reasons.join("; ") || "see meta.json"}`, "Fix and re-run, or pass --force");
+      }
+      sent[key] = v.version;
+    }
+    app.meta.sent = sent;
+    app.meta.applied_at = (o.now ?? new Date()).toISOString();
+  }
+  app.meta.status = status;
+  saveMeta(app);
+  return app;
+}
+
+export function addNote(app: Application, text: string, now: Date = new Date()): Application {
+  app.meta.notes.push(`${localDate(now)}: ${text}`);
+  saveMeta(app);
+  return app;
+}
+
+/** Copy the resume and cover-letter PDFs into `to` without overwriting; returns the new paths. */
+export function exportApplication(app: Application, o: { to: string; version?: number }): string[] {
+  const files: string[] = [];
+  const resume = pickVersion(app, "resume", o.version);
+  files.push(pdfInDir(resume.dir));
+  if (latestVersion(app, "cover-letter")) files.push(pdfInDir(pickVersion(app, "cover-letter").dir));
+  const dests = files.map((f) => join(o.to, basename(f)));
+  for (const d of dests) if (existsSync(d)) throw new UserError(`${d} already exists`, "Move it or pick another --to directory");
+  mkdirSync(o.to, { recursive: true });
+  files.forEach((f, i) => copyFileSync(f, dests[i]!));
+  return dests;
+}
+
+function pdfInDir(dir: string): string {
+  const f = readdirSync(dir).find((n) => n.endsWith(".pdf"));
+  if (!f) throw new UserError(`No PDF in ${dir}`);
+  return join(dir, f);
 }

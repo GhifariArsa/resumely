@@ -235,15 +235,32 @@ export function pdfIn(dir: string): string {
   return join(dir, f);
 }
 
-export function formatApplicationList(apps: Application[]): string {
+export function formatApplicationList(apps: Application[], filter: { status?: string; company?: string } = {}): string {
   if (apps.length === 0) return "No applications yet. Try: resumely apply --clip";
-  const rows = [["DATE", "COMPANY", "ROLE", "STATUS", "RESUME"]];
-  for (const a of apps) {
-    const v = latestVersion(a, "resume");
-    rows.push([a.slug.slice(0, 10), a.meta.company, a.meta.role, a.meta.status, v ? `v${v.version}` : "-"]);
+  const q = filter.company?.toLowerCase();
+  const shown = apps.filter((a) => (!filter.status || a.meta.status === filter.status) && (!q || a.meta.company.toLowerCase().includes(q)));
+  if (shown.length === 0) return "No applications match that filter.";
+  const rows = [["DATE", "COMPANY", "ROLE", "STATUS", "RESUME", "COVER", "SENT"]];
+  const ver = (a: Application, kind: DocumentKind) => {
+    const v = latestVersion(a, kind);
+    if (!v) return "-";
+    return `v${v.version}${readJsonFile(join(v.dir, "meta.json"))?.ready === false ? "!" : ""}`;
+  };
+  for (const a of shown) {
+    const s = a.meta.sent;
+    const sent = s ? [s.resume ? `r${s.resume}` : "", s.cover_letter ? `c${s.cover_letter}` : ""].filter(Boolean).join("/") : "";
+    rows.push([a.slug.slice(0, 10), a.meta.company, a.meta.role, a.meta.status, ver(a, "resume"), ver(a, "cover-letter"), sent || "-"]);
   }
   const w = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)));
   return rows.map((r) => r.map((c, i) => c.padEnd(w[i]!)).join("  ").trimEnd()).join("\n");
+}
+
+function readJsonFile(path: string): { ready?: boolean } | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 export function resolveOpenTarget(app: Application, version?: number, kind: DocumentKind = "resume"): string {

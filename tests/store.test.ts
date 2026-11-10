@@ -100,3 +100,79 @@ test("findDuplicate matches URLs after normalisation", () => {
   expect(findDuplicate(d, { url: "https://JOBS.example.com/acme/123/#top", company: "", role: "" })?.slug).toBe(a.slug);
   expect(findDuplicate(d, { url: "https://jobs.example.com/acme/124", company: "", role: "" })).toBeNull();
 });
+
+import { writeFileSync, readdirSync } from "node:fs";
+import { addNote, exportApplication, setStatus } from "../src/application/store";
+import { formatApplicationList } from "../src/pipeline/apply";
+
+function appWithVersions(o: { resume?: boolean; cover?: boolean } = { resume: true, cover: true }) {
+  const dir = tmp();
+  const app = createApplication(dir, job("Acme", "Dev"), src, new Date("2026-03-01T10:00:00Z"));
+  const mk = (kind: "resume" | "cover-letter", ready: boolean, checks?: object) => {
+    const v = nextVersionDir(app, kind);
+    writeFileSync(join(v.dir, "meta.json"), JSON.stringify({ ready }));
+    writeFileSync(join(v.dir, `${kind}.pdf`), "%PDF");
+    if (checks) writeFileSync(join(v.dir, "checks.json"), JSON.stringify(checks));
+  };
+  if (o.resume !== false) mk("resume", true);
+  if (o.cover) mk("cover-letter", true);
+  return { dir, app, mk };
+}
+
+test("setStatus applied records sent from the latest versions", () => {
+  const { app, mk } = appWithVersions();
+  mk("resume", true);
+  const out = setStatus(app, "applied", { now: new Date("2026-03-02T00:00:00Z") });
+  expect(out.meta.status).toBe("applied");
+  expect(out.meta.sent).toEqual({ resume: 2, cover_letter: 1 });
+  expect(out.meta.applied_at).toBe("2026-03-02T00:00:00.000Z");
+  const re = findApplication(join(app.dir, ".."), app.slug);
+  expect(re.meta.sent).toEqual({ resume: 2, cover_letter: 1 });
+  expect(re.meta.applied_at).toBe("2026-03-02T00:00:00.000Z");
+});
+
+test("setStatus applied refuses a not-ready version unless forced", () => {
+  const { app, mk } = appWithVersions();
+  mk("resume", false, { ats: { status: "failed", problems: ["no text"] }, overflow: false, pages: 1, target_pages: 1 });
+  expect(() => setStatus(app, "applied")).toThrow(/resume v2 is not ready: ATS check failed: no text/);
+  try { setStatus(app, "applied"); } catch (e) { expect((e as UserError).hint).toBe("Fix and re-run, or pass --force"); }
+  expect(setStatus(app, "applied", { force: true }).meta.sent?.resume).toBe(2);
+});
+
+test("setStatus other statuses leave sent alone", () => {
+  const { app } = appWithVersions();
+  const out = setStatus(app, "interviewing");
+  expect(out.meta.status).toBe("interviewing");
+  expect(out.meta.sent).toBeUndefined();
+});
+
+test("addNote appends a dated note", () => {
+  const { app } = appWithVersions();
+  addNote(app, "recruiter called", new Date("2026-03-05T12:00:00Z"));
+  expect(findApplication(join(app.dir, ".."), app.slug).meta.notes).toEqual(["2026-03-05: recruiter called"]);
+});
+
+test("exportApplication copies resume and cover PDFs and refuses overwrites", () => {
+  const { app } = appWithVersions();
+  const to = tmp();
+  const paths = exportApplication(app, { to });
+  expect(paths.map((p) => p.split("/").pop()).sort()).toEqual(["cover-letter.pdf", "resume.pdf"]);
+  expect(readdirSync(to).length).toBe(2);
+  expect(() => exportApplication(app, { to })).toThrow(/already exists.*resume\.pdf|resume\.pdf.*already exists/);
+});
+
+test("formatApplicationList shows !, vN and sent", () => {
+  const { app, mk } = appWithVersions();
+  mk("cover-letter", false);
+  setStatus(app, "applied", { force: true });
+  const out = formatApplicationList([findApplication(join(app.dir, ".."), app.slug)]);
+  expect(out.split("\n")[0]).toBe("DATE        COMPANY  ROLE  STATUS   RESUME  COVER  SENT");
+  expect(out).toMatch(/applied\s+v1\s+v2!\s+r1\/c2/);
+});
+
+test("formatApplicationList filters are applied by the caller helper", () => {
+  const { app } = appWithVersions();
+  const apps = [app];
+  expect(formatApplicationList(apps, { status: "offer" })).toContain("No applications match");
+  expect(formatApplicationList(apps, { company: "acm" })).toContain("Acme");
+});
