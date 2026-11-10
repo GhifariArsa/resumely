@@ -32,5 +32,6 @@ Write `out/cover-letter.json`. It must be valid JSON that conforms to `cover-let
 - `closing`: "Sincerely,".
 - Do not output the candidate's name, contact details, date or the company address. The system fills them in.
 - Use plain text. Accented letters and the typographic dashes and quotes (– — ‘ ’ “ ”) are fine; avoid emoji and other symbols.
-- Every number and every product, company or technology name in your text must appear in the entries and company facts you cite (numbers keep their units). The company name and the role title from the posting are also allowed.
-- Any capitalised word mid-sentence (names, products, places, days) must appear in your sources.
+- Every number in your text must appear in the entries and company facts you cite (numbers keep their units). Numbers from `job.md` (years of experience, team size) are never yours to state.
+- Every product, company or technology name in your text must appear in the entries or company facts you cite. Names of the company, its teams and products as `job.md` writes them ("your Dispatch Platform team") are also allowed, but never claim a technology the posting names and your entries don't: it is a gap, not experience.
+- Any capitalised word mid-sentence (names, products, places, days) must appear in your sources or in `job.md` under the rule above.

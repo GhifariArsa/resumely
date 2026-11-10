@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { Entry, EntryType, Profile } from "../profile/schema";
 import { hasToken, PROSE_OPENERS, scanClaims } from "../checks/fabrication";
+import { keywordCoverage } from "../checks/keywords";
 import { unsupportedChars } from "../render/latex-escape";
 import { CompanyResearch, CoverLetterContent, ParsedJob, ResumeContent, Review } from "./schemas";
 
@@ -56,7 +57,7 @@ function claimIssues(
   what: string,
   errors: string[],
   warnings: string[],
-  scan: { openers?: readonly string[]; context?: string } = {},
+  scan: { openers?: readonly string[]; context?: string; nounSources?: string[] } = {},
 ): void {
   for (const tok of scanClaims(text, sources, scan)) {
     const isNumber = /^[$\d]/.test(tok);
@@ -173,6 +174,21 @@ export type CoverLetterOptions = {
 
 const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * The posting as a proper-noun source for a cover letter ("your Dispatch Platform team"), minus every posting
+ * keyword or requirement the profile doesn't support: a technology only the posting names can't be claimed.
+ */
+export function postingNounSource(jobText: string, job: ParsedJob, profile: Profile): string {
+  const profileText = [
+    ...profile.entries.flatMap((e) => [e.title, e.org ?? "", e.body, ...e.skills]),
+    ...Object.values(profile.skills).flat(),
+  ].join("\n");
+  const absent = keywordCoverage([...job.keywords, ...job.requirements], "", profileText).absent;
+  return absent
+    .sort((a, b) => b.length - a.length)
+    .reduce((t, term) => t.replace(new RegExp(`(?<![\\p{L}\\p{N}_#+])${escRe(term.trim())}(?![\\p{L}\\p{N}_#+])`, "giu"), " "), jobText);
+}
+
 export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): ValidationResult<CoverLetterContent> {
   const r = CoverLetterContent.safeParse(raw);
   if (!r.success) return { ok: false, errors: schemaErrors(r.error.issues) };
@@ -206,6 +222,7 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
 
   const banned = o.banned.map((b) => b.trim()).filter(Boolean);
   const context = value.paragraphs.map((p) => p.text).join("\n");
+  const posting = [postingNounSource(o.jobText, o.job, o.profile)];
   value.paragraphs.forEach((p, i) => {
     const at = `paragraphs[${i}]`;
     for (const id of p.entry_ids) if (!byId.has(id)) errors.push(`${at}: unknown entry id "${id}"`);
@@ -221,7 +238,7 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
       o.job.company,
       o.job.role,
     ];
-    claimIssues(at, p.text, sources, o.mode, "the cited entries or company facts", errors, warnings, { openers: PROSE_OPENERS, context });
+    claimIssues(at, p.text, sources, o.mode, "the cited entries or company facts", errors, warnings, { openers: PROSE_OPENERS, context, nounSources: posting });
   });
   return errors.length ? { ok: false, errors } : { ok: true, value, warnings };
 }

@@ -164,3 +164,17 @@ test("R14: cover letter sentence openers used lowercase elsewhere in the letter 
   const r = validateCoverLetter({ ...letter, paragraphs: letter.paragraphs.map((p, k) => (k === 1 ? { ...p, text: p1 } : k === 2 ? { ...p, text: p2 } : p)) }, base);
   expect(r.ok).toBe(true);
 });
+
+describe("R15: the job posting is a proper-noun source for cover letters", () => {
+  const jd = "Atlas Freight is hiring a Senior Backend Engineer to join the Dispatch Platform team. 5+ years of experience. Experience with Kafka.";
+  const o = { jobText: jd, job: { ...job, keywords: ["Kafka", "TypeScript"], requirements: ["5+ years of experience"] } };
+  test("a team named in the posting is allowed", () => {
+    expect(errs(withP(1, letter.paragraphs[1]!.text + " I would like to bring that to your Dispatch Platform team."), o)).toEqual([]);
+  });
+  test("a technology only the posting names (absent from the profile) is not", () => {
+    expect(errs(withP(1, letter.paragraphs[1]!.text + " I ran Kafka in production."), o)).toContain('paragraphs[1]: "Kafka" is not supported by the cited entries or company facts');
+  });
+  test("numbers from the posting are never a source", () => {
+    expect(errs(withP(1, letter.paragraphs[1]!.text + " I have 5+ years of experience."), o).some((e) => e.includes('"5"'))).toBe(true);
+  });
+});

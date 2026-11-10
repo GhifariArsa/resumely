@@ -129,18 +129,24 @@ const SENTENCE_SPLIT = /(?<=[.!?;:])(?<!\be\.g\.|\bi\.e\.|\bvs\.|\betc\.)\s+/i;
 
 /**
  * Returns the numbers and proper nouns in `text` that do not appear in `sources` (numbers first, then nouns).
- * `openers` are extra sentence openers to exempt; `context` is the rest of the same document: a sentence-initial
- * plain Titlecase word is exempt when its lowercase form appears in the sources or the document ("Slow" / "slow").
+ * `nounSources` support proper nouns only, never numbers. `openers` are extra sentence openers to exempt;
+ * `context` is the rest of the same document: a sentence-initial plain Titlecase word is exempt when its
+ * lowercase form appears in the sources or the document ("Slow" / "slow").
  */
-export function scanClaims(text: string, sources: string[], opts: { openers?: readonly string[]; context?: string } = {}): string[] {
+export function scanClaims(
+  text: string,
+  sources: string[],
+  opts: { openers?: readonly string[]; context?: string; nounSources?: string[] } = {},
+): string[] {
   const openers = new Set((opts.openers ?? []).map((w) => w.toLowerCase()));
-  const joined = sources.join("\n");
+  const numberSources = sources.join("\n");
+  const joined = [numberSources, ...(opts.nounSources ?? [])].join("\n");
   const lowercaseElsewhere = (t: string) => {
     if (!PLAIN_TITLECASE.test(t)) return false;
     const l = t.toLowerCase();
     return hasToken(joined, l, true) || hasToken(text, l, true) || (opts.context !== undefined && hasToken(opts.context, l, true));
   };
-  const sourced = new Set(numbersIn(joined, true).map((n) => n.key));
+  const sourced = new Set(numbersIn(numberSources, true).map((n) => n.key));
   const numbers: string[] = [];
   const nouns: string[] = [];
   const addTo = (list: string[], t: string) => {
