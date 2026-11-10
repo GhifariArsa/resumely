@@ -19,12 +19,9 @@ export const Bullet = z.object({
 });
 export type Bullet = z.infer<typeof Bullet>;
 
+/** Headings, orgs, locations and dates are filled from the cited entry (see resolve.ts), never by the agent. */
 export const ResumeItem = z.object({
   entry_id: z.string().min(1),
-  heading: z.string().min(1),
-  subheading: z.string().optional(),
-  location: z.string().optional(),
-  dates: z.string().optional(),
   bullets: z.array(Bullet),
 });
 export type ResumeItem = z.infer<typeof ResumeItem>;
@@ -32,7 +29,7 @@ export type ResumeItem = z.infer<typeof ResumeItem>;
 export const ResumeSection = z.object({
   kind: z.enum(["experience", "projects", "education", "extras"]),
   title: z.string().min(1),
-  items: z.array(ResumeItem),
+  items: z.array(ResumeItem).min(1),
 });
 export type ResumeSection = z.infer<typeof ResumeSection>;
 

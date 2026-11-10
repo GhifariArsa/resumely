@@ -9,11 +9,12 @@ import { resolveAdapter } from "../harness/adapter";
 import type { JobSource } from "../job/intake";
 import { layout, requireDataRoot } from "../paths";
 import { buildAgentPayload } from "../profile/context";
-import { loadProfile } from "../profile/load";
-import type { Profile } from "../profile/schema";
+import { loadAbout, loadProfile } from "../profile/load";
+import type { About } from "../profile/schema";
 import { compileTex } from "../render/compile";
 import { builtinTemplatesDir, findTemplate, renderResume } from "../render/render";
 import type { TemplateMeta } from "../render/render";
+import { EntrySnapshot, resolveResume, type EntryLike, type ResolvedResume } from "./resolve";
 import { jsonSchemaFor, ResumeContent } from "./schemas";
 import { validateParsedJob, validateResume } from "./validate";
 import { createRunWorkspace, newRunId, runAgentStep } from "./workspace";
@@ -30,10 +31,10 @@ export type ApplyResult = {
 const prompt = (name: string) => Bun.file(join(import.meta.dir, "prompts", name)).text();
 const json = (v: unknown) => JSON.stringify(v, null, 2) + "\n";
 
-function flattenTrace(c: ResumeContent) {
+function flattenTrace(r: ResolvedResume) {
   const out: { section: string; item: string; bullet: number; text: string; entry_ids: string[]; basis: string }[] = [];
-  if (c.summary) out.push({ section: "summary", item: "", bullet: 0, text: c.summary.text, entry_ids: c.summary.entry_ids, basis: "direct" });
-  for (const s of c.sections) {
+  if (r.summary) out.push({ section: "summary", item: "", bullet: 0, text: r.summary.text, entry_ids: r.summary.entry_ids, basis: "direct" });
+  for (const s of r.sections) {
     for (const it of s.items) {
       it.bullets.forEach((b, i) => out.push({ section: s.title, item: it.heading, bullet: i, text: b.text, entry_ids: b.entry_ids, basis: b.basis }));
     }
@@ -41,37 +42,39 @@ function flattenTrace(c: ResumeContent) {
   return out;
 }
 
-function snapshotOf(c: ResumeContent, profile: Profile) {
+function snapshotOf(c: ResumeContent, entries: EntryLike[]) {
   const ids = new Set<string>(c.summary?.entry_ids ?? []);
   for (const s of c.sections) for (const it of s.items) { ids.add(it.entry_id); for (const b of it.bullets) b.entry_ids.forEach((i) => ids.add(i)); }
-  const payload = buildAgentPayload(profile) as { entries: { id: string }[] };
-  return payload.entries.filter((e) => ids.has(e.id));
+  return entries.filter((e) => ids.has(e.id));
 }
 
-/** Render + compile in memory, then allocate the version dir and write everything. */
+/** Resolve + render + compile in memory, then allocate the version dir and write everything. */
 async function produceVersion(o: {
   app: Application;
-  profile: Profile;
+  about: About;
   content: ResumeContent;
+  /** Entries to resolve headings/dates from: the live profile (apply) or the version's frozen snapshot (render). */
+  entries: EntryLike[];
   template: TemplateMeta;
   filename: string;
   timeoutMs: number;
   targetPages: number;
   meta: Record<string, unknown>;
-  trace?: string;
+  /** Raw snapshot to copy verbatim (render); otherwise one is built from `entries`. */
   snapshot?: string;
   onProgress?: (m: string) => void;
 }): Promise<{ dir: string; version: number; pdfPath: string; pages: number; warnings: string[] }> {
   o.onProgress?.("compiling…");
-  const tex = renderResume(o.template, { about: o.profile.about, content: o.content });
+  const resume = resolveResume(o.content, o.entries);
+  const tex = renderResume(o.template, { about: o.about, resume });
   const { pdf, pages } = await compileTex(tex, o.template.engine, { timeoutMs: o.timeoutMs });
   const { dir, version } = nextVersionDir(o.app, "resume");
-  const pdfName = sendReadyName(o.filename, o.profile.about, "Resume", o.app.meta.company);
+  const pdfName = sendReadyName(o.filename, o.about, "Resume", o.app.meta.company);
   writeFileSync(join(dir, "resume.json"), json(o.content));
   writeFileSync(join(dir, "resume.tex"), tex);
   writeFileSync(join(dir, pdfName), pdf);
-  writeFileSync(join(dir, "trace.json"), o.trace ?? json(flattenTrace(o.content)));
-  writeFileSync(join(dir, "entries.snapshot.json"), o.snapshot ?? json(snapshotOf(o.content, o.profile)));
+  writeFileSync(join(dir, "trace.json"), json(flattenTrace(resume)));
+  writeFileSync(join(dir, "entries.snapshot.json"), o.snapshot ?? json(snapshotOf(o.content, o.entries)));
   writeFileSync(
     join(dir, "meta.json"),
     json({ ...o.meta, template: o.template.id, mode: "truthful", pages, target_pages: o.targetPages, created: new Date().toISOString() }),
@@ -99,6 +102,7 @@ export async function applyJob(opts: {
   const timeoutMs = config.timeout_minutes * 60_000;
   const runId = newRunId();
   const runDir = join(l.runs, runId);
+  const payload = buildAgentPayload(profile);
 
   onProgress?.("parsing job…");
   const job = await runAgentStep({
@@ -121,7 +125,7 @@ export async function applyJob(opts: {
     workspace: createRunWorkspace(l.runs, "write", runId),
     instructions: (await prompt("write-resume.md")).replaceAll("{{pages}}", String(config.pages)),
     files: {
-      "profile.json": json(buildAgentPayload(profile)),
+      "profile.json": json(payload),
       "job.md": opts.input.text,
       "parsed-job.json": json(job),
       "resume.schema.json": json(jsonSchemaFor("resume")),
@@ -133,8 +137,8 @@ export async function applyJob(opts: {
   });
 
   const v = await produceVersion({
-    app, profile, content, template, filename: config.filename, timeoutMs, targetPages: config.pages, onProgress,
-    meta: { harness, run: runDir },
+    app, about: profile.about, content, entries: payload.entries, template, filename: config.filename, timeoutMs,
+    targetPages: config.pages, onProgress, meta: { harness, run: runDir },
   });
   onProgress?.(`done: ${v.pdfPath}`);
   if (opts.open !== false) await openFile(v.pdfPath);
@@ -172,14 +176,16 @@ export async function renderApplication(opts: {
   const app = findApplication(l.applications, opts.query);
   const src = pickVersion(app, opts.version);
   const template = findTemplate(opts.template, [builtinTemplatesDir(), l.templates]);
-  const profile = loadProfile(l.profile);
+  const { about } = loadAbout(l.profile);
   const content = ResumeContent.parse(JSON.parse(readFileSync(join(src.dir, "resume.json"), "utf8")));
+  const snapshotPath = join(src.dir, "entries.snapshot.json");
+  if (!existsSync(snapshotPath)) throw new UserError(`Missing ${snapshotPath}`, "render needs the version's frozen entries snapshot");
+  const snapshot = readFileSync(snapshotPath, "utf8");
+  const entries = EntrySnapshot.parse(JSON.parse(snapshot));
   const old = existsSync(join(src.dir, "meta.json")) ? JSON.parse(readFileSync(join(src.dir, "meta.json"), "utf8")) : {};
-  const read = (f: string) => (existsSync(join(src.dir, f)) ? readFileSync(join(src.dir, f), "utf8") : undefined);
   const v = await produceVersion({
-    app, profile, content, template, filename: config.filename, timeoutMs: config.timeout_minutes * 60_000,
+    app, about, content, entries, snapshot, template, filename: config.filename, timeoutMs: config.timeout_minutes * 60_000,
     targetPages: config.pages, onProgress: opts.onProgress,
-    trace: read("trace.json"), snapshot: read("entries.snapshot.json"),
     meta: { harness: old.harness, run: old.run, rendered_from: src.version },
   });
   if (opts.open !== false) await openFile(v.pdfPath);

@@ -79,3 +79,41 @@ test("summary with empty entry_ids fails", () => {
   c.summary.entry_ids = [];
   expect(validateResume(c, profile, "truthful").ok).toBe(false);
 });
+
+test("agent-written heading/subheading/dates are ignored (not part of the schema)", () => {
+  const c = fixture();
+  Object.assign(c.sections[0].items[0], { heading: "Principal Staff Engineer", subheading: "Google", dates: "2010 -- Present", location: "Mars" });
+  const r = validateResume(c, profile, "truthful");
+  expect(r.ok).toBe(true);
+  const item = (r as { value: any }).value.sections[0].items[0];
+  expect(Object.keys(item).sort()).toEqual(["bullets", "entry_id"]);
+});
+
+test("bullet must cite its item's entry", () => {
+  const c = fixture();
+  c.sections[0].items[0].bullets[1].entry_ids = ["exp-northwind"];
+  expect(errs(validateResume(c, profile, "truthful"))).toContain('sections[0].items[0].bullets[1]: bullet must cite its item\'s entry "exp-atlas-labs"');
+});
+
+test("entry type must match section kind", () => {
+  const c = fixture();
+  c.sections[0].items[0].entry_id = "proj-ledgerly";
+  c.sections[0].items[0].bullets.forEach((b: any) => (b.entry_ids = ["proj-ledgerly"]));
+  expect(errs(validateResume(c, profile, "truthful"))).toContain('sections[0].items[0]: entry "proj-ledgerly" (project) does not belong in a experience section');
+  const d = fixture();
+  d.sections[2].kind = "extras";
+  expect(errs(validateResume(d, profile, "truthful"))).toContain('sections[2].items[0]: entry "edu-udem" (education) does not belong in a extras section');
+});
+
+test("skills must come from the profile (normalised compare)", () => {
+  const c = fixture();
+  c.skills = [{ category: "Streaming", items: ["Kafka", "Rust", "  typescript ", "node.js", "GitHub   Actions", "React"] }];
+  const e = errs(validateResume(c, profile, "truthful"));
+  expect(e).toEqual(['skills[0].items[0]: "Kafka" is not in your profile', 'skills[0].items[1]: "Rust" is not in your profile']);
+});
+
+test("empty section items rejected", () => {
+  const c = fixture();
+  c.sections[2].items = [];
+  expect(errs(validateResume(c, profile, "truthful")).some((e) => e.startsWith("sections[2].items: "))).toBe(true);
+});

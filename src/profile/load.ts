@@ -4,7 +4,7 @@ import { parse as parseYaml } from "yaml";
 import type { ZodType } from "zod";
 import { UserError } from "../errors";
 import { stripPrivate } from "./context";
-import { AboutFrontmatter, EntryFrontmatter, SkillsSchema, type Entry, type EntryType, type Profile } from "./schema";
+import { AboutFrontmatter, EntryFrontmatter, SkillsSchema, type About, type Entry, type EntryType, type Profile } from "./schema";
 
 const FM = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const DIR_TYPE: Record<string, EntryType> = { experience: "experience", projects: "project", education: "education", extras: "other" };
@@ -33,12 +33,17 @@ function splitFrontmatter(file: string): { data: unknown; body: string } {
   return { data: parseYamlSafe(m[1]!, file) ?? {}, body: text.slice(m[0].length) };
 }
 
-export function loadProfile(profileDir: string): Profile {
+/** Load just `about.md` (header data), with private keys and sections removed. */
+export function loadAbout(profileDir: string): { about: About; privateKeys: number } {
   const aboutFile = join(profileDir, "about.md");
   if (!existsSync(aboutFile)) throw new UserError(`${aboutFile}: not found`, "Run `resumely init` first");
   const a = splitFrontmatter(aboutFile);
   const { private: priv, ...about } = validate(AboutFrontmatter, a.data, aboutFile);
-  const aboutBody = stripPrivate(a.body).body.trim();
+  return { about: { ...about, body: stripPrivate(a.body).body.trim() }, privateKeys: priv ? Object.keys(priv).length : 0 };
+}
+
+export function loadProfile(profileDir: string): Profile {
+  const { about, privateKeys } = loadAbout(profileDir);
 
   const skillsFile = join(profileDir, "skills.yaml");
   const skills = existsSync(skillsFile) ? validate(SkillsSchema, parseYamlSafe(readFileSync(skillsFile, "utf8"), skillsFile) ?? {}, skillsFile) : {};
@@ -59,5 +64,5 @@ export function loadProfile(profileDir: string): Profile {
       entries.push({ ...fm, type: fm.type ?? DIR_TYPE[dir]!, body: s.body.trim(), privateLines: s.privateLines, file });
     }
   }
-  return { about: { ...about, body: aboutBody }, entries, skills, aboutPrivateKeys: priv ? Object.keys(priv).length : 0 };
+  return { about, entries, skills, aboutPrivateKeys: privateKeys };
 }

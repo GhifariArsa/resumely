@@ -112,13 +112,13 @@
 ((* for l in about.links *))\unskip\mbox{~$|$} \href{((( raw.about.links[loop.index0].url | latexUrl )))}{\underline{((( l.url | replace("https://", "") | replace("http://", "") )))}}
 ((* endfor *))
 \end{center}
-((* if content.summary *))
+((* if resume.summary *))
 
 \begin{center}
-  \small (((content.summary.text)))
+  \small (((resume.summary.text)))
 \end{center}
 ((* endif *))
-((* for s in content.sections *))
+((* for s in resume.sections *))
 
 \section{(((s.title)))}
   \resumeSubHeadingListStart
@@ -141,12 +141,12 @@
 ((* endfor *))
   \resumeSubHeadingListEnd
 ((* endfor *))
-((* if content.skills.length *))
+((* if resume.skills.length *))
 
 \section{Technical Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-((* for k in content.skills *))
+((* for k in resume.skills *))
      \textbf{(((k.category)))}{: ((( k.items | join(", ") )))}((* if not loop.last *)) \\((* endif *))
 
 ((* endfor *))

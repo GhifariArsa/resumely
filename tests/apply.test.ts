@@ -103,6 +103,23 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
     expect(out).toContain("Atlas Freight");
     expect(out).toContain("v2");
   });
+
+  test("render resolves from the frozen snapshot and recomputes trace from edited content", async () => {
+    script({ "0": parseOut, "1": writeOut(resume) });
+    const { app } = await run();
+    const live = join(layout(root).profile, "experience/atlas-labs.md");
+    writeFileSync(live, readFileSync(live, "utf8").replace("title: Senior Software Engineer", "title: Chief Everything Officer"));
+    const edited = structuredClone(resume);
+    edited.sections[0].items[0].bullets[0].text = "Rebuilt the billing dashboard with a team of 4.";
+    writeFileSync(join(app.dir, "resume/v1/resume.json"), JSON.stringify(edited));
+    await renderApplication({ root, query: "atlas", template: "classic", open: false });
+    const tex = readFileSync(join(app.dir, "resume/v2/resume.tex"), "utf8");
+    expect(tex).toContain("{Senior Software Engineer}{Mar 2023 – Present}");
+    expect(tex).not.toContain("Chief Everything Officer");
+    const trace = JSON.parse(readFileSync(join(app.dir, "resume/v2/trace.json"), "utf8"));
+    expect(trace[1]).toMatchObject({ item: "Senior Software Engineer", text: "Rebuilt the billing dashboard with a team of 4." });
+    expect(readFileSync(join(app.dir, "resume/v2/entries.snapshot.json"), "utf8")).toBe(readFileSync(join(app.dir, "resume/v1/entries.snapshot.json"), "utf8"));
+  });
 });
 
 test("unknown entry id on all write attempts: app exists, no version", async () => {

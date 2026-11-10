@@ -4,7 +4,7 @@ import nunjucks from "nunjucks";
 import { parse as parseToml } from "smol-toml";
 import { UserError } from "../errors";
 import type { About } from "../profile/schema";
-import type { ResumeContent } from "../pipeline/schemas";
+import type { ResolvedResume } from "../pipeline/resolve";
 import { escapeDeep, latexUrl } from "./latex-escape";
 
 export type TemplateMeta = {
@@ -66,7 +66,9 @@ export function findTemplate(id: string, dirs: string[]): TemplateMeta {
   return found;
 }
 
-export function renderResume(t: TemplateMeta, data: { about: About; content: ResumeContent }): string {
+export type ResumeRenderData = { about: About; resume: ResolvedResume };
+
+export function renderResume(t: TemplateMeta, data: ResumeRenderData): string {
   const env = new nunjucks.Environment(new nunjucks.FileSystemLoader(t.dir), {
     autoescape: false,
     tags: {

@@ -21,7 +21,13 @@ export function stripPrivate(body: string): { body: string; privateLines: number
   return { body: out.join("\n"), privateLines };
 }
 
-export function buildAgentPayload(p: Profile): object {
+export type AgentPayload = {
+  about: { name: string; headline?: string; location?: string; body: string };
+  skills: Profile["skills"];
+  entries: Omit<Entry, "file" | "privateLines">[];
+};
+
+export function buildAgentPayload(p: Profile): AgentPayload {
   return {
     about: { name: p.about.name, headline: p.about.headline, location: p.about.location, body: p.about.body },
     skills: p.skills,

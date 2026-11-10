@@ -6,10 +6,14 @@ import { latexEscape, latexUrl } from "../src/render/latex-escape";
 import { renderResume, findTemplate, listTemplates, builtinTemplatesDir } from "../src/render/render";
 import { loadProfile } from "../src/profile/load";
 import { ResumeContent } from "../src/pipeline/schemas";
+import { resolveResume, type ResolvedResume } from "../src/pipeline/resolve";
+import { buildAgentPayload } from "../src/profile/context";
 import { UserError } from "../src/errors";
 
-const about = loadProfile(join(import.meta.dir, "fixtures/profile-jordan")).about;
+const profile = loadProfile(join(import.meta.dir, "fixtures/profile-jordan"));
+const about = profile.about;
 const content = ResumeContent.parse(await Bun.file(join(import.meta.dir, "fixtures/resume-content.json")).json());
+const resume = resolveResume(content, buildAgentPayload(profile).entries);
 
 describe("latexEscape", () => {
   const table: [string, string][] = [
@@ -29,7 +33,7 @@ test("latexUrl escapes % and # only", () => {
 
 describe("renderResume", () => {
   const t = findTemplate("classic", [builtinTemplatesDir()]);
-  const tex = renderResume(t, { about, content });
+  const tex = renderResume(t, { about, resume });
   test("escapes content", () => {
     expect(tex).toContain("R\\&D");
     expect(tex).toContain("C\\#");
@@ -50,13 +54,18 @@ describe("renderResume", () => {
     expect([...idx].sort((a, b) => a - b)).toEqual(idx);
     expect(tex).toContain("\\resumeProjectHeading");
   });
+  test("headings and dates come from the resolved entries", () => {
+    expect(tex).toContain("{Senior Software Engineer}{Mar 2023 – Present}");
+    expect(tex).toContain("{Atlas Labs}{Montreal, QC}");
+    expect(tex).toContain("\\textbf{Ledgerly} $|$ \\emph{TypeScript, PostgreSQL}}{Jan 2022 – Present}");
+  });
   test("raw URL with % is escaped for href", () => {
     const a = { ...about, links: [{ label: "Me", url: "https://x.com/a%20b#f" }] };
-    expect(renderResume(t, { about: a, content })).toContain("\\href{https://x.com/a\\%20b\\#f}");
+    expect(renderResume(t, { about: a, resume })).toContain("\\href{https://x.com/a\\%20b\\#f}");
   });
   test("omits summary when absent", () => {
-    const { summary: _s, ...rest } = content;
-    expect(renderResume(t, { about, content: rest as ResumeContent })).not.toContain("Backend-leaning");
+    const { summary: _s, ...rest } = resume;
+    expect(renderResume(t, { about, resume: rest as ResolvedResume })).not.toContain("Backend-leaning");
   });
 });
 
