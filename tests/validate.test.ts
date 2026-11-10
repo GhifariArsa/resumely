@@ -73,3 +73,9 @@ test("jsonSchemaFor produces object schemas", () => {
   const j = jsonSchemaFor("parsed-job") as any;
   expect(j.required).toContain("requirements");
 });
+
+test("summary with empty entry_ids fails", () => {
+  const c = fixture();
+  c.summary.entry_ids = [];
+  expect(validateResume(c, profile, "truthful").ok).toBe(false);
+});

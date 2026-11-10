@@ -82,6 +82,6 @@
     { "category": "Tools", "items": ["PostgreSQL", "Docker", "Terraform", "GitHub Actions"] }
   ],
   "gaps": [
-    { "requirement": "Go in production at scale", "note": "Used Go at Northwind Systems and in RouteKit; no larger-scale claim made." }
+    { "requirement": "Rust", "note": "No Rust experience in the profile; omitted." }
   ]
 }

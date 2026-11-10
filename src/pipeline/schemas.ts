@@ -37,7 +37,7 @@ export const ResumeSection = z.object({
 export type ResumeSection = z.infer<typeof ResumeSection>;
 
 export const ResumeContent = z.object({
-  summary: z.object({ text: z.string().min(1), entry_ids: z.array(z.string()) }).optional(),
+  summary: z.object({ text: z.string().min(1), entry_ids: z.array(z.string()).min(1) }).optional(),
   sections: z.array(ResumeSection).min(1),
   skills: z.array(z.object({ category: z.string().min(1), items: z.array(z.string()) })),
   gaps: z.array(z.object({ requirement: z.string(), note: z.string() })),
