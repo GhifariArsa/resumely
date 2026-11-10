@@ -161,3 +161,10 @@ test("R14: tech names at sentence start still fail", () => {
   expect(scanClaims("PostgreSQL tuning.", none, { context: "postgresql tuning" })).toEqual(["PostgreSQL"]);
   expect(scanClaims("Go2 services.", none, { context: "go2" })).toEqual(["Go2"]);
 });
+
+test("R9: short names (≤3 chars) never take the lowercase exemption at sentence start", () => {
+  expect(scanClaims("Go services handle billing.", ["let's go live"])).toContain("Go");
+  expect(scanClaims("Go services handle billing.", ["owned the go-live"])).toContain("Go");
+  expect(scanClaims("Go services handle billing.", [], { context: "ready to go" })).toContain("Go");
+  expect(scanClaims("Go services handle billing.", ["Built services in Go"])).toEqual([]);
+});

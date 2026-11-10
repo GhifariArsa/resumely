@@ -187,3 +187,17 @@ test("at least two paragraphs must cite an entry", () => {
   const two = { ...letter, paragraphs: letter.paragraphs.map((p, k) => (k === 3 ? { ...p, entry_ids: [] } : p)) };
   expect(errs(two)).toEqual([]);
 });
+
+test("R9: a short posting keyword stays unclaimable when the profile only has it lowercase", async () => {
+  const { postingNounSource } = await import("../src/pipeline/validate");
+  const dir = mkdtempSync(join(tmpdir(), "resumely-go-"));
+  writeFileSync(join(dir, "about.md"), "---\nname: Jordan Example\nemail: jordan@example.com\n---\n");
+  writeFileSync(join(dir, "skills.yaml"), "Languages: [TypeScript]\n");
+  mkdirSync(join(dir, "experience"));
+  writeFileSync(join(dir, "experience", "x.md"), "---\nid: exp-x\ntype: experience\ntitle: Engineer\norg: Ledgerly\nstart: 2022-01\nend: present\n---\nOwned the go-live of billing.\n");
+  const p = loadProfile(dir);
+  const j: ParsedJob = { ...job, keywords: ["Go", "Kafka"] };
+  const src = postingNounSource("We use Go and Kafka for dispatch.", j, p);
+  expect(src).not.toMatch(/\bGo\b/);
+  expect(src).not.toContain("Kafka");
+});

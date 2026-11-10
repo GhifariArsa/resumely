@@ -1,7 +1,6 @@
 import type { z } from "zod";
 import type { Entry, EntryType, Profile } from "../profile/schema";
 import { hasToken, PROSE_OPENERS, scanClaims } from "../checks/fabrication";
-import { keywordCoverage } from "../checks/keywords";
 import { unsupportedChars } from "../render/latex-escape";
 import { CompanyResearch, CoverLetterContent, ParsedJob, ResumeContent, Review } from "./schemas";
 
@@ -183,7 +182,10 @@ export function postingNounSource(jobText: string, job: ParsedJob, profile: Prof
     ...profile.entries.flatMap((e) => [e.title, e.org ?? "", e.body, ...e.skills]),
     ...Object.values(profile.skills).flat(),
   ].join("\n");
-  const absent = keywordCoverage([...job.keywords, ...job.requirements], "", profileText).absent;
+  // Same matching rule as the scanner: terms of ≤3 chars must match case-sensitively ("go-live" doesn't support "Go").
+  const absent = [...new Set([...job.keywords, ...job.requirements].map((t) => t.trim()).filter(Boolean))].filter(
+    (t) => !hasToken(profileText, t, t.length <= 3),
+  );
   return absent
     .sort((a, b) => b.length - a.length)
     .reduce((t, term) => t.replace(new RegExp(`(?<![\\p{L}\\p{N}_#+])${escRe(term.trim())}(?![\\p{L}\\p{N}_#+])`, "giu"), " "), jobText);

@@ -142,7 +142,8 @@ export function scanClaims(
   const numberSources = sources.join("\n");
   const joined = [numberSources, ...(opts.nounSources ?? [])].join("\n");
   const lowercaseElsewhere = (t: string) => {
-    if (!PLAIN_TITLECASE.test(t)) return false;
+    // Short names stay case-sensitive (R9): "Go" is not sourced by "go live".
+    if (t.length <= 3 || !PLAIN_TITLECASE.test(t)) return false;
     const l = t.toLowerCase();
     return hasToken(joined, l, true) || hasToken(text, l, true) || (opts.context !== undefined && hasToken(opts.context, l, true));
   };
