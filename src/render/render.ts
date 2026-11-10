@@ -4,6 +4,7 @@ import nunjucks from "nunjucks";
 import { parse as parseToml } from "smol-toml";
 import { UserError } from "../errors";
 import type { About } from "../profile/schema";
+import type { CoverLetterContent } from "../pipeline/schemas";
 import type { ResolvedResume } from "../pipeline/resolve";
 import { escapeDeep, latexUrl, unsupportedChars } from "./latex-escape";
 
@@ -75,8 +76,7 @@ function settable(s: string): string {
   return bad.size ? [...s].filter((c) => !bad.has(c)).join("") : s;
 }
 
-export function renderResume(t: TemplateMeta, input: ResumeRenderData): string {
-  const data = input.job ? { ...input, job: { company: settable(input.job.company), role: settable(input.job.role) } } : input;
+function makeEnv(t: TemplateMeta): nunjucks.Environment {
   const env = new nunjucks.Environment(new nunjucks.FileSystemLoader(t.dir), {
     autoescape: false,
     tags: {
@@ -89,5 +89,23 @@ export function renderResume(t: TemplateMeta, input: ResumeRenderData): string {
     },
   });
   env.addFilter("latexUrl", latexUrl);
-  return env.render("resume.tex.njk", { ...escapeDeep(data), raw: data });
+  return env;
+}
+
+export function renderResume(t: TemplateMeta, input: ResumeRenderData): string {
+  const data = input.job ? { ...input, job: { company: settable(input.job.company), role: settable(input.job.role) } } : input;
+  return makeEnv(t).render("resume.tex.njk", { ...escapeDeep(data), raw: data });
+}
+
+export type CoverLetterRenderData = { about: About; letter: CoverLetterContent; job: { company: string; role: string }; date: string };
+
+/** en-US long date, e.g. "November 10, 2026". */
+export function formatLetterDate(d: Date): string {
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
+export function renderCoverLetter(t: TemplateMeta, input: CoverLetterRenderData): string {
+  if (!t.supports.includes("cover-letter")) throw new UserError(`Template "${t.id}" does not support cover letters`, "Pick a template whose supports list includes cover-letter");
+  const data = { ...input, job: { company: settable(input.job.company), role: settable(input.job.role) } };
+  return makeEnv(t).render("cover-letter.tex.njk", { ...escapeDeep(data), raw: data });
 }

@@ -1,0 +1,21 @@
+/** Phrases that make a cover letter read as templated or AI-written. Matched case-insensitively on word boundaries. */
+export const DEFAULT_BANNED: string[] = [
+  "thrilled",
+  "passionate about",
+  "leverage",
+  "leveraging",
+  "I am writing to express",
+  "I am writing to apply",
+  "delve",
+  "fast-paced environment",
+  "team player",
+  "synergy",
+  "excited to apply",
+  "dynamic",
+  "go-getter",
+  "think outside the box",
+  "hit the ground running",
+  "I believe I would be a great fit",
+  "tapestry",
+  "testament to",
+];

@@ -1,0 +1,8 @@
+\begin{center}
+    \textbf{\Huge \scshape (((about.name)))} \\ \vspace{1pt}
+    \small ((* set sep = "" *))((* if about.location *))(((about.location)))((* set sep = "\\unskip\\mbox{~$|$} " *))((* endif *))
+((* if about.phone *))((( sep )))(((about.phone)))((* set sep = "\\unskip\\mbox{~$|$} " *))((* endif *))
+((( sep )))\href{mailto:((( raw.about.email | latexUrl )))}{\underline{(((about.email)))}}
+((* for l in about.links *))\unskip\mbox{~$|$} \href{((( raw.about.links[loop.index0].url | latexUrl )))}{\underline{((( l.url | replace("https://", "") | replace("http://", "") )))}}
+((* endfor *))
+\end{center}

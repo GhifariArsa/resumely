@@ -66,3 +66,20 @@ export function loadProfile(profileDir: string): Profile {
   }
   return { about, entries, skills, aboutPrivateKeys: privateKeys };
 }
+
+const VOICE_FILES = 3;
+const VOICE_CHARS = 3000;
+
+/** Up to 3 writing samples from `voice/*.md|*.txt`, private sections stripped, empty files skipped. */
+export function loadVoiceSamples(profileDir: string): { name: string; text: string }[] {
+  const d = join(profileDir, "voice");
+  if (!existsSync(d)) return [];
+  const out: { name: string; text: string }[] = [];
+  for (const name of readdirSync(d).filter((n) => /\.(md|txt)$/i.test(n)).sort()) {
+    const text = stripPrivate(readFileSync(join(d, name), "utf8")).body.trim().slice(0, VOICE_CHARS);
+    if (!text) continue;
+    out.push({ name, text });
+    if (out.length === VOICE_FILES) break;
+  }
+  return out;
+}

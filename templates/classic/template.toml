@@ -2,5 +2,5 @@ id = "classic"
 name = "Classic"
 description = "Single-column ATS-friendly resume, adapted from Jake's Resume (MIT)."
 engine = "pdflatex"
-supports = ["resume"]
+supports = ["resume", "cover-letter"]
 packages = ["latexsym", "amssymb", "fullpage", "titlesec", "marvosym", "color", "verbatim", "enumitem", "hyperref", "fancyhdr", "babel", "tabularx"]

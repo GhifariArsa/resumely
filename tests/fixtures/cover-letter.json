@@ -1,0 +1,26 @@
+{
+  "greeting": "Dear Hiring Team,",
+  "paragraphs": [
+    {
+      "text": "Atlas Freight builds dispatch software for regional carriers, and that focus is what caught my attention in the Senior Backend Engineer posting. Dispatch is a domain where every delayed message turns into a late truck, so I was glad to read that your engineering team runs its event pipeline on Kafka. Event-driven systems are the part of backend work I enjoy most, and the role looks like a place where that interest would be put to real use.",
+      "entry_ids": [],
+      "company_fact_ids": ["co-1", "co-2"]
+    },
+    {
+      "text": "At Atlas Labs I designed an event-driven ingestion pipeline processing 2M events per day. Getting that right meant thinking about ordering, retries and what happens when a downstream consumer falls behind, which are the same questions a dispatch system has to answer. I also led a team of 4 to rebuild a billing dashboard, cutting page load time by 60%, so I am used to owning a service from the data layer through to what users actually see.",
+      "entry_ids": ["exp-atlas-labs"],
+      "company_fact_ids": []
+    },
+    {
+      "text": "Earlier, at Northwind Systems, I built internal REST services in Go that served 50 teams, and I reduced CI time from 25 to 9 minutes by parallelizing test suites. That work taught me to treat other engineers as customers of my code: stable interfaces, fast feedback and clear documentation. At Atlas Labs I carried that habit into mentoring three junior engineers and introducing RFC-based design reviews.",
+      "entry_ids": ["exp-northwind", "exp-atlas-labs"],
+      "company_fact_ids": []
+    },
+    {
+      "text": "I would welcome a conversation about how I could help your team keep dispatch events flowing reliably. I am happy to walk through the ingestion pipeline design in detail, or to talk through any part of my background that is useful.",
+      "entry_ids": ["exp-atlas-labs"],
+      "company_fact_ids": ["co-1"]
+    }
+  ],
+  "closing": "Sincerely,"
+}

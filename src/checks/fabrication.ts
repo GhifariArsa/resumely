@@ -32,6 +32,15 @@ export const RESUME_VERBS: readonly string[] = [
   "Understood", "End-to-end", "Co-led", "Prototype", "Review", "Secure", "Simplify", "Standardize", "Standardise", "Unify", "Use", "Utilize", "Validate",
 ];
 
+/** Ordinary prose sentence openers. Opt-in (cover letters): resume bullets open with verbs and never need them. */
+export const PROSE_OPENERS: readonly string[] = [
+  "At", "In", "On", "To", "Of", "By", "For", "From", "With", "Over", "Beyond", "As", "If", "So", "But", "And", "Or", "Yet", "Still", "Even", "Just", "Not",
+  "My", "Our", "Your", "Their", "Its", "It", "That", "This", "These", "Those", "There", "Here", "They", "He", "She", "You",
+  "Each", "Both", "Every", "Any", "All", "Most", "Many", "Some", "Another", "Other", "What", "Which", "Why", "How", "Whether", "When", "While", "Once",
+  "Since", "Because", "Before", "After", "During", "Earlier", "Later", "Today", "Recently", "Previously", "Currently", "Together", "Meanwhile",
+  "Finally", "Overall", "Specifically", "Additionally", "However", "Moreover", "Instead", "Rather", "Please", "Thank", "Thanks", "Happy", "Glad",
+];
+
 const IGNORED = new Set([...STOP_WORDS, ...GENERIC_CAPITALISED].map((w) => w.toLowerCase()));
 const VERBS = new Set(RESUME_VERBS.map((w) => w.toLowerCase()));
 const STOPS = new Set(STOP_WORDS.map((w) => w.toLowerCase()));
@@ -114,7 +123,8 @@ function exemptAtSentenceStart(sentence: string, t: string): boolean {
 const SENTENCE_SPLIT = /(?<=[.!?;:])(?<!\be\.g\.|\bi\.e\.|\bvs\.|\betc\.)\s+/i;
 
 /** Returns the numbers and proper nouns in `text` that do not appear in `sources` (numbers first, then nouns). */
-export function scanClaims(text: string, sources: string[]): string[] {
+export function scanClaims(text: string, sources: string[], opts: { openers?: readonly string[] } = {}): string[] {
+  const openers = new Set((opts.openers ?? []).map((w) => w.toLowerCase()));
   const joined = sources.join("\n");
   const sourced = new Set(numbersIn(joined, true).map((n) => n.key));
   const numbers: string[] = [];
@@ -130,7 +140,7 @@ export function scanClaims(text: string, sources: string[]): string[] {
     tokens.forEach((raw, i) => {
       const t = raw.replace(/\.+$/, "");
       if (!isProperNoun(t) || isGeneric(t)) return;
-      if (i === 0 && exemptAtSentenceStart(sentence, t)) return;
+      if (i === 0 && (exemptAtSentenceStart(sentence, t) || openers.has(t.toLowerCase()))) return;
       if (!hasToken(joined, t, t.length <= 3)) addTo(nouns, t);
     });
   }

@@ -1,8 +1,8 @@
 import type { z } from "zod";
-import type { EntryType, Profile } from "../profile/schema";
-import { hasToken, scanClaims } from "../checks/fabrication";
+import type { Entry, EntryType, Profile } from "../profile/schema";
+import { hasToken, PROSE_OPENERS, scanClaims } from "../checks/fabrication";
 import { unsupportedChars } from "../render/latex-escape";
-import { CompanyResearch, ParsedJob, ResumeContent } from "./schemas";
+import { CompanyResearch, CoverLetterContent, ParsedJob, ResumeContent } from "./schemas";
 
 export type ValidationResult<T> = { ok: true; value: T; warnings: string[] } | { ok: false; errors: string[] };
 
@@ -44,6 +44,22 @@ function profileSkills(profile: Profile): Set<string> {
   return new Set(all.map(normaliseSkill));
 }
 
+/**
+ * Flag numbers/proper nouns that `sources` don't support. Stretch never allows new numeric metrics:
+ * only unsourced proper nouns downgrade from errors to warnings.
+ */
+function claimIssues(where: string, text: string, sources: string[], mode: "truthful" | "stretch", what: string, errors: string[], warnings: string[], openers?: readonly string[]): void {
+  for (const tok of scanClaims(text, sources, { openers })) {
+    const isNumber = /^[$\d]/.test(tok);
+    (mode === "truthful" || isNumber ? errors : warnings).push(`${where}: "${tok}" is not supported by ${what}`);
+  }
+}
+
+function entrySources(e: Entry): string[] {
+  const years = [e.start, e.end].flatMap((d) => (d && /^\d{4}/.test(d) ? [d.slice(0, 4)] : []));
+  return [e.title, e.org ?? "", e.body, ...e.skills, ...e.tags, ...years];
+}
+
 export function validateResume(raw: unknown, profile: Profile, mode: "truthful" | "stretch"): ValidationResult<ResumeContent> {
   const r = ResumeContent.safeParse(raw);
   if (!r.success) return { ok: false, errors: schemaErrors(r.error.issues) };
@@ -55,20 +71,8 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful" 
   const profileSkillText = Object.values(profile.skills).flat();
   /** Flag numbers/proper nouns the cited entries don't support: errors in truthful mode, warnings in stretch. */
   const checkClaims = (where: string, text: string, ids: string[]) => {
-    const sources = [
-      ...profileSkillText,
-      ...ids.flatMap((id) => {
-        const e = byId.get(id);
-        if (!e) return [];
-        const years = [e.start, e.end].flatMap((d) => (d && /^\d{4}/.test(d) ? [d.slice(0, 4)] : []));
-        return [e.title, e.org ?? "", e.body, ...e.skills, ...e.tags, ...years];
-      }),
-    ];
-    for (const tok of scanClaims(text, sources)) {
-      // Stretch never allows new numeric metrics: only unsourced proper nouns downgrade to warnings.
-      const isNumber = /^[$\d]/.test(tok);
-      (mode === "truthful" || isNumber ? errors : warnings).push(`${where}: "${tok}" is not supported by the cited entries`);
-    }
+    const sources = [...profileSkillText, ...ids.flatMap((id) => (byId.has(id) ? entrySources(byId.get(id)!) : []))];
+    claimIssues(where, text, sources, mode, "the cited entries", errors, warnings);
   };
   const checkIds = (where: string, ids: string[]) => {
     for (const id of ids) if (!known.has(id)) errors.push(`${where}: unknown entry id "${id}"`);
@@ -143,4 +147,61 @@ export function validateResearch(raw: unknown): ValidationResult<CompanyResearch
     checkChars(`sources[${i}]`, u);
   });
   return errors.length ? { ok: false, errors } : { ok: true, value, warnings: [] };
+}
+
+const GREETING = /^Dear (Hiring Team|[A-Z][\w.'-]+( [A-Z][\w.'-]+)*),$/;
+
+export type CoverLetterOptions = {
+  profile: Profile;
+  research: CompanyResearch | null;
+  banned: string[];
+  mode: "truthful" | "stretch";
+  jobText: string;
+  job: ParsedJob;
+};
+
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): ValidationResult<CoverLetterContent> {
+  const r = CoverLetterContent.safeParse(raw);
+  if (!r.success) return { ok: false, errors: schemaErrors(r.error.issues) };
+  const value = r.data;
+  const byId = new Map(o.profile.entries.map((e) => [e.id, e]));
+  const facts = new Map((o.research?.facts ?? []).map((f) => [f.id, f]));
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const chars = (where: string, text: string) => {
+    for (const c of unsupportedChars(text)) {
+      errors.push(`${where}: unsupported character "${c}" (U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")})`);
+    }
+  };
+
+  const g = value.greeting.match(GREETING);
+  if (!g) errors.push(`greeting: must be "Dear Hiring Team," or "Dear <Name>," (got "${value.greeting}")`);
+  else if (g[1] !== "Hiring Team" && !hasToken(o.jobText, g[1]!)) errors.push(`greeting: "${g[1]}" does not appear in the job posting; use "Dear Hiring Team,"`);
+  chars("greeting", value.greeting);
+  chars("closing", value.closing);
+
+  const words = value.paragraphs.reduce((n, p) => n + p.text.split(/\s+/).filter(Boolean).length, 0);
+  if (words < 200 || words > 400) errors.push(`word count ${words} (must be 200–400)`);
+
+  const banned = o.banned.map((b) => b.trim()).filter(Boolean);
+  value.paragraphs.forEach((p, i) => {
+    const at = `paragraphs[${i}]`;
+    for (const id of p.entry_ids) if (!byId.has(id)) errors.push(`${at}: unknown entry id "${id}"`);
+    for (const id of p.company_fact_ids) if (!facts.has(id)) errors.push(`${at}: unknown company fact id "${id}"`);
+    chars(at, p.text);
+    for (const b of banned) {
+      if (new RegExp(`(?<![\\p{L}\\p{N}])${escRe(b)}(?![\\p{L}\\p{N}])`, "iu").test(p.text)) errors.push(`${at}: banned phrase "${b}"`);
+    }
+    const sources = [
+      ...p.entry_ids.flatMap((id) => (byId.has(id) ? entrySources(byId.get(id)!) : [])),
+      ...p.company_fact_ids.flatMap((id) => (facts.has(id) ? [facts.get(id)!.text] : [])),
+      o.research?.company ?? "",
+      o.job.company,
+      o.job.role,
+    ];
+    claimIssues(at, p.text, sources, o.mode, "the cited entries or company facts", errors, warnings, PROSE_OPENERS);
+  });
+  return errors.length ? { ok: false, errors } : { ok: true, value, warnings };
 }

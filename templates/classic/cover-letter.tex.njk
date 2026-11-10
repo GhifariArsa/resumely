@@ -1,0 +1,40 @@
+%-------------------------
+% Cover letter in Latex (resumely classic), header matches the resume
+% Based off of Jake Gutierrez's resume template (MIT), see LICENSE
+%------------------------
+
+((* include "preamble.tex.njk" *))
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.9em}
+\raggedright
+
+% Ensure that generate pdf is machine readable/ATS parsable
+\pdfgentounicode=1
+\hypersetup{pdfauthor={(((about.name)))}, pdftitle={(((about.name))) — Cover Letter}, pdfsubject={(((job.role))) at (((job.company)))}}
+
+%-------------------------------------------
+\begin{document}
+
+((* include "header.tex.njk" *))
+
+\vspace{1.2em}
+
+(((date)))
+
+Hiring Team \\
+(((job.company)))
+
+\textbf{Re: (((job.role)))}
+
+(((letter.greeting)))
+((* for p in letter.paragraphs *))
+
+(((p.text)))
+((* endfor *))
+
+(((letter.closing))) \\[0.6em]
+(((about.name)))
+
+\par\message{RESUMELY-FILL \the\pagetotal\space\the\textheight}
+\end{document}

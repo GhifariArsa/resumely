@@ -5,55 +5,7 @@
 % License : MIT
 %------------------------
 
-\documentclass[letterpaper,11pt]{article}
-
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage{latexsym}
-\usepackage{amssymb}
-\usepackage[empty]{fullpage}
-\usepackage{titlesec}
-\usepackage{marvosym}
-\usepackage[usenames,dvipsnames]{color}
-\usepackage{verbatim}
-\usepackage{enumitem}
-\usepackage[hidelinks]{hyperref}
-\usepackage{fancyhdr}
-\usepackage[english]{babel}
-\usepackage{tabularx}
-\input{glyphtounicode}
-
-
-%----------FONT OPTIONS----------
-% sans-serif
-% \usepackage[sfdefault]{FiraSans}
-% \usepackage[sfdefault]{roboto}
-% \usepackage[sfdefault]{noto-sans}
-% \usepackage[default]{sourcesanspro}
-
-% serif
-% \usepackage{CormorantGaramond}
-% \usepackage{charter}
-
-
-\pagestyle{fancy}
-\fancyhf{} % clear all header and footer fields
-\fancyfoot{}
-\renewcommand{\headrulewidth}{0pt}
-\renewcommand{\footrulewidth}{0pt}
-
-% Adjust margins
-\addtolength{\oddsidemargin}{-0.5in}
-\addtolength{\evensidemargin}{-0.5in}
-\addtolength{\textwidth}{1in}
-\addtolength{\topmargin}{-.5in}
-\addtolength{\textheight}{1.0in}
-
-\urlstyle{same}
-
-\raggedbottom
-\raggedright
-\setlength{\tabcolsep}{0in}
+((* include "preamble.tex.njk" *))
 
 % Sections formatting
 \titleformat{\section}{
@@ -106,14 +58,7 @@
 %-------------------------------------------
 \begin{document}
 
-\begin{center}
-    \textbf{\Huge \scshape (((about.name)))} \\ \vspace{1pt}
-    \small ((* set sep = "" *))((* if about.location *))(((about.location)))((* set sep = "\\unskip\\mbox{~$|$} " *))((* endif *))
-((* if about.phone *))((( sep )))(((about.phone)))((* set sep = "\\unskip\\mbox{~$|$} " *))((* endif *))
-((( sep )))\href{mailto:((( raw.about.email | latexUrl )))}{\underline{(((about.email)))}}
-((* for l in about.links *))\unskip\mbox{~$|$} \href{((( raw.about.links[loop.index0].url | latexUrl )))}{\underline{((( l.url | replace("https://", "") | replace("http://", "") )))}}
-((* endfor *))
-\end{center}
+((* include "header.tex.njk" *))
 ((* if resume.summary *))
 
 \begin{center}
