@@ -17,7 +17,7 @@ export type HardFacts = {
 /**
  * Deterministic measurements of a compiled resume. The result carries only keyword names, counts
  * and problems; no profile content (it is handed to a reviewer that must not see the profile).
- * `seam.text` overrides PDF extraction (tests).
+ * `seam.text` (with `seam.reason` when null) overrides PDF extraction, for callers that already extracted it.
  */
 export async function buildHardFacts(
   o: {
@@ -31,9 +31,9 @@ export async function buildHardFacts(
     contentText: string;
     fabricationWarnings?: string[];
   },
-  seam: { text?: string | null } = {},
+  seam: { text?: string | null; reason?: "missing" | "failed" } = {},
 ): Promise<HardFacts> {
-  const ex = seam.text !== undefined ? { text: seam.text } : await extractPdfTextDetailed(o.pdf);
+  const ex = seam.text !== undefined ? { text: seam.text, reason: seam.reason } : await extractPdfTextDetailed(o.pdf);
   const text = ex.text;
   const doc = text ?? o.contentText;
   return {
@@ -44,7 +44,7 @@ export async function buildHardFacts(
     underflow: o.pages === o.targetPages && o.fill !== null && o.fill < 0.85,
     word_count: doc.split(/\s+/).filter(Boolean).length,
     keywords: keywordCoverage(o.keywords, doc, o.profileText),
-    ats: atsCheck(text, o.atsExpect, (ex as { reason?: "missing" | "failed" }).reason),
+    ats: atsCheck(text, o.atsExpect, ex.reason),
     fabrication_warnings: o.fabricationWarnings ?? [],
   };
 }

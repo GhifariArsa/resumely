@@ -14,8 +14,17 @@ export function normalizeText(s: string): string {
     .toLowerCase();
 }
 
-/** Normalised and hyphen-insensitive, so a real hyphen wrapped at a line end still matches. */
-const cmp = (s: string) => normalizeText(s).replace(/-/g, "");
+/**
+ * Normalised and hyphen-insensitive, so a real hyphen wrapped at a line end still matches. Quotes and
+ * dashes compare as typeset: pdfLaTeX turns ' into ’, "--" into – and "---" into —.
+ */
+const cmp = (s: string) =>
+  normalizeText(s)
+    .replace(/[‘’`]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/---|—/g, "\u2014")
+    .replace(/--|–/g, "\u2013")
+    .replace(/-/g, "");
 
 export function atsCheck(text: string | null, expect: AtsExpect, skipReason: "missing" | "failed" = "missing"): AtsResult {
   if (text === null) {

@@ -117,3 +117,17 @@ test("extractPdfText: bad PDF is failed, missing binary is missing", async () =>
   }
   expect((await extractPdfTextDetailed(new Uint8Array(), { bin: "nope-nope" })).reason).toBe("missing");
 });
+
+test("atsCheck: straight quotes and TeX dash ligatures match their typeset forms", () => {
+  const text = "Jordan Example\nI’ve shipped “fast” code – twice—really. It’s fine.";
+  const r = atsCheck(text, { ...expectBase, snippets: [`I've shipped "fast" code -- twice---really.`, "It's fine."] });
+  expect(r).toEqual({ status: "ok", problems: [] });
+});
+
+test("buildHardFacts: seam reason is kept for the ATS skip hint", async () => {
+  const f = await buildHardFacts(
+    { pdf: new Uint8Array(), pages: 1, fill: 0.9, targetPages: 1, keywords: [], profileText: "", contentText: "x", atsExpect: expectBase },
+    { text: null, reason: "failed" },
+  );
+  expect(f.ats).toEqual({ status: "skipped", problems: [], hint: "pdftotext failed to read the PDF" });
+});
