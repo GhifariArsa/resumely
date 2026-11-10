@@ -157,3 +157,10 @@ test("prose openers are exempt only when opted in", async () => {
   expect(scanClaims("My work was good.", [], { openers: PROSE_OPENERS })).toEqual([]);
   expect(scanClaims("Snowflake was good.", [], { openers: PROSE_OPENERS })).toEqual(["Snowflake"]);
 });
+
+test("R14: cover letter sentence openers used lowercase elsewhere in the letter are exempt", () => {
+  const p1 = letter.paragraphs[1]!.text + " Backpressure was the hard part.";
+  const p2 = letter.paragraphs[2]!.text + " I still think about backpressure.";
+  const r = validateCoverLetter({ ...letter, paragraphs: letter.paragraphs.map((p, k) => (k === 1 ? { ...p, text: p1 } : k === 2 ? { ...p, text: p2 } : p)) }, base);
+  expect(r.ok).toBe(true);
+});

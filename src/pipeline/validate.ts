@@ -48,8 +48,17 @@ function profileSkills(profile: Profile): Set<string> {
  * Flag numbers/proper nouns that `sources` don't support. Stretch never allows new numeric metrics:
  * only unsourced proper nouns downgrade from errors to warnings.
  */
-function claimIssues(where: string, text: string, sources: string[], mode: "truthful" | "stretch", what: string, errors: string[], warnings: string[], openers?: readonly string[]): void {
-  for (const tok of scanClaims(text, sources, { openers })) {
+function claimIssues(
+  where: string,
+  text: string,
+  sources: string[],
+  mode: "truthful" | "stretch",
+  what: string,
+  errors: string[],
+  warnings: string[],
+  scan: { openers?: readonly string[]; context?: string } = {},
+): void {
+  for (const tok of scanClaims(text, sources, scan)) {
     const isNumber = /^[$\d]/.test(tok);
     (mode === "truthful" || isNumber ? errors : warnings).push(`${where}: "${tok}" is not supported by ${what}`);
   }
@@ -69,10 +78,11 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful" 
   const errors: string[] = [];
   const warnings: string[] = [];
   const profileSkillText = Object.values(profile.skills).flat();
+  const context = [value.summary?.text ?? "", ...value.sections.flatMap((s) => s.items.flatMap((i) => i.bullets.map((b) => b.text)))].join("\n");
   /** Flag numbers/proper nouns the cited entries don't support: errors in truthful mode, warnings in stretch. */
-  const checkClaims = (where: string, text: string, ids: string[]) => {
+  const checkClaims = (where: string, text: string, ids: string[], openers?: readonly string[]) => {
     const sources = [...profileSkillText, ...ids.flatMap((id) => (byId.has(id) ? entrySources(byId.get(id)!) : []))];
-    claimIssues(where, text, sources, mode, "the cited entries", errors, warnings);
+    claimIssues(where, text, sources, mode, "the cited entries", errors, warnings, { openers, context });
   };
   const checkIds = (where: string, ids: string[]) => {
     for (const id of ids) if (!known.has(id)) errors.push(`${where}: unknown entry id "${id}"`);
@@ -87,7 +97,7 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful" 
   if (value.summary) {
     checkIds("summary", value.summary.entry_ids);
     checkChars("summary", value.summary.text);
-    checkClaims("summary", value.summary.text, value.summary.entry_ids);
+    checkClaims("summary", value.summary.text, value.summary.entry_ids, PROSE_OPENERS);
   }
   value.sections.forEach((s, i) => {
     checkChars(`sections[${i}].title`, s.title);
@@ -195,6 +205,7 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
   if (words < 200 || words > 400) errors.push(`word count ${words} (must be 200–400)`);
 
   const banned = o.banned.map((b) => b.trim()).filter(Boolean);
+  const context = value.paragraphs.map((p) => p.text).join("\n");
   value.paragraphs.forEach((p, i) => {
     const at = `paragraphs[${i}]`;
     for (const id of p.entry_ids) if (!byId.has(id)) errors.push(`${at}: unknown entry id "${id}"`);
@@ -210,7 +221,7 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
       o.job.company,
       o.job.role,
     ];
-    claimIssues(at, p.text, sources, o.mode, "the cited entries or company facts", errors, warnings, PROSE_OPENERS);
+    claimIssues(at, p.text, sources, o.mode, "the cited entries or company facts", errors, warnings, { openers: PROSE_OPENERS, context });
   });
   return errors.length ? { ok: false, errors } : { ok: true, value, warnings };
 }

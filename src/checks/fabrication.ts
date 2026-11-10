@@ -11,6 +11,7 @@ export const GENERIC_CAPITALISED: readonly string[] = [
   "Senior", "Engineer", "Team", "API", "REST", "CI", "CD", "SQL", "UI", "UX", "RFC", "B.Sc", "M.Sc", "PhD",
   "JSON", "HTTP", "HTTPS", "SaaS", "SLA", "SLO", "SDK", "B2B", "B2C", "CRM", "ERP", "KPI", "OKR", "ML", "AI", "LLM",
   "ETL", "MVP", "QA", "CLI", "GUI", "OS", "Q1", "Q2", "Q3", "Q4",
+  "Skills", "Experience", "Projects", "Summary", "Education", "Backend", "Frontend", "Platform", "Engineering",
 ];
 
 /** Patterns for generic tokens (latency percentiles). */
@@ -105,27 +106,40 @@ function exemptWord(l: string): boolean {
   );
 }
 
-const WORD_PREFIXES = new Set(["co", "re", "pre", "self", "cross", "multi", "over", "under", "out", "de", "un", "non", "auto", "end"]);
+const WORD_PREFIXES = new Set([
+  "co", "re", "pre", "self", "cross", "multi", "over", "under", "out", "de", "un", "non", "auto", "end",
+  "real", "open", "long", "built", "hands", "high", "low", "full", "data", "event", "cloud",
+]);
 
-/** Exempt the whole opening word. A hyphenated opener is exempt only as prefix/verb + verb form (Co-led, Re-wrote);
- *  otherwise its first part is checked as a normal token ("Kafka-based" -> Kafka). */
+/** A plain Titlecase word: one capital then lowercase letters only (no internal capitals, digits, #, + or .). */
+const PLAIN_TITLECASE = /^\p{Lu}\p{Ll}+$/u;
+
+/** Exempt the whole opening word. A hyphenated opener is exempt when its first part is a known prefix, verb or
+ *  stop word (Co-led, Real-time, Cross-functional); otherwise its first part is checked as a normal token
+ *  ("Kafka-based" -> Kafka). Words ending in -ly are adverbs (Previously, Recently). */
 function exemptAtSentenceStart(sentence: string, t: string): boolean {
   const whole = (sentence.match(/^[^\p{L}\p{N}]*([\p{L}\p{N}][\p{L}\p{N}-]*)/u)?.[1] ?? t).toLowerCase();
-  if (!whole.includes("-")) return exemptWord(whole);
+  if (!whole.includes("-")) return exemptWord(whole) || (PLAIN_TITLECASE.test(t) && whole.endsWith("ly"));
   if (VERBS.has(whole)) return true;
-  const parts = whole.split("-");
-  const first = parts[0]!;
-  const last = parts[parts.length - 1]!;
-  const firstOk = WORD_PREFIXES.has(first) || VERBS.has(first) || STOPS.has(first);
-  return firstOk && (/(ed|ing)$/.test(last) || VERBS.has(last));
+  const first = whole.split("-")[0]!;
+  return WORD_PREFIXES.has(first) || VERBS.has(first) || STOPS.has(first);
 }
 
 const SENTENCE_SPLIT = /(?<=[.!?;:])(?<!\be\.g\.|\bi\.e\.|\bvs\.|\betc\.)\s+/i;
 
-/** Returns the numbers and proper nouns in `text` that do not appear in `sources` (numbers first, then nouns). */
-export function scanClaims(text: string, sources: string[], opts: { openers?: readonly string[] } = {}): string[] {
+/**
+ * Returns the numbers and proper nouns in `text` that do not appear in `sources` (numbers first, then nouns).
+ * `openers` are extra sentence openers to exempt; `context` is the rest of the same document: a sentence-initial
+ * plain Titlecase word is exempt when its lowercase form appears in the sources or the document ("Slow" / "slow").
+ */
+export function scanClaims(text: string, sources: string[], opts: { openers?: readonly string[]; context?: string } = {}): string[] {
   const openers = new Set((opts.openers ?? []).map((w) => w.toLowerCase()));
   const joined = sources.join("\n");
+  const lowercaseElsewhere = (t: string) => {
+    if (!PLAIN_TITLECASE.test(t)) return false;
+    const l = t.toLowerCase();
+    return hasToken(joined, l, true) || hasToken(text, l, true) || (opts.context !== undefined && hasToken(opts.context, l, true));
+  };
   const sourced = new Set(numbersIn(joined, true).map((n) => n.key));
   const numbers: string[] = [];
   const nouns: string[] = [];
@@ -140,7 +154,7 @@ export function scanClaims(text: string, sources: string[], opts: { openers?: re
     tokens.forEach((raw, i) => {
       const t = raw.replace(/\.+$/, "");
       if (!isProperNoun(t) || isGeneric(t)) return;
-      if (i === 0 && (exemptAtSentenceStart(sentence, t) || openers.has(t.toLowerCase()))) return;
+      if (i === 0 && (exemptAtSentenceStart(sentence, t) || openers.has(t.toLowerCase()) || lowercaseElsewhere(t))) return;
       if (!hasToken(joined, t, t.length <= 3)) addTo(nouns, t);
     });
   }

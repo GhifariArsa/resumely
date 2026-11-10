@@ -119,3 +119,45 @@ test("x86 is a name, x2 a multiplier", () => {
   expect(scanClaims("Optimised x86 kernels", none)).toEqual(["x86"]);
   expect(scanClaims("Grew x10", none)).toEqual(["10x"]);
 });
+
+// R14: false positives seen in real runs. Each string is truthful against its sources and must pass.
+const real = ["Skills include TypeScript, Node.js and PostgreSQL", "carrier payouts and load matching", "slow queries; models for billing events"];
+
+test("R14: structural nouns are generic", () => {
+  expect(scanClaims("Skills include TypeScript, Node.js and PostgreSQL.", real)).toEqual([]);
+  for (const w of ["Experience", "Projects", "Summary", "Education", "Backend", "Frontend", "Platform", "Engineering"]) {
+    expect(scanClaims(`Shipped ${w} work`, none)).toEqual([]);
+  }
+});
+
+test("R14: hyphenated openers with a known first part are exempt whatever the last part", () => {
+  for (const t of ["Cross-functional work with product teams", "Real-time tracking of shipments", "Open-source bookkeeping library", "Hands-on with production systems", "Long-running jobs", "Self-serve dashboards", "Event-driven ingestion"]) {
+    expect(scanClaims(t, none)).toEqual([]);
+  }
+});
+
+test("R14: sentence-initial -ly adverbs are exempt", () => {
+  expect(scanClaims("Previously built REST services in Go.", ["Go"])).toEqual([]);
+  expect(scanClaims("Led billing. Recently moved to Postgres.", ["Postgres"])).toEqual([]);
+});
+
+test("R14: a sentence-initial Titlecase word is exempt when its lowercase form is sourced or used elsewhere", () => {
+  expect(scanClaims("Carrier payouts are the part of the role I know best.", real)).toEqual([]);
+  expect(scanClaims("Models for billing events were rebuilt.", real)).toEqual([]);
+  expect(scanClaims("Slow queries were the bottleneck.", real)).toEqual([]);
+  expect(scanClaims("Slow builds hurt.", none, { context: "fixed the slow parts" })).toEqual([]);
+  expect(scanClaims("Slow builds hurt.", none)).toEqual(["Slow"]);
+  // capitalised-only occurrences don't count: "Carrier" must appear lowercase
+  expect(scanClaims("Carrier payouts", none, { context: "Carrier Inc" })).toEqual(["Carrier"]);
+});
+
+test("R14: tech names at sentence start still fail", () => {
+  expect(scanClaims("Kafka pipelines scaled to millions", none)).toEqual(["Kafka"]);
+  expect(scanClaims("Kafka-based pipelines for billing", none)).toEqual(["Kafka"]);
+  expect(scanClaims("React-powered dashboard", none)).toEqual(["React"]);
+  expect(scanClaims("Integrated payments (e.g. Stripe) and invoicing", none)).toEqual(["Stripe"]);
+  expect(scanClaims("Stripe billing shipped.", ["billing"], { context: "billing" })).toEqual(["Stripe"]);
+  // internal capitals / digits never take the lowercase exemption
+  expect(scanClaims("PostgreSQL tuning.", none, { context: "postgresql tuning" })).toEqual(["PostgreSQL"]);
+  expect(scanClaims("Go2 services.", none, { context: "go2" })).toEqual(["Go2"]);
+});

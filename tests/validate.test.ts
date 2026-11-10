@@ -190,3 +190,20 @@ test("stretch: invented x2 multiplier is an error", () => {
   c.sections[0].items[0].bullets[0].text = "Scaled throughput x2.";
   expect(errs(validateResume(c, profile, "stretch")).join("\n")).toContain('"2x" is not supported');
 });
+
+test("R14: summary accepts prose openers and structural nouns", () => {
+  const c = fixture();
+  c.summary.text = "My focus is billing and data pipelines in TypeScript and Go.";
+  expect(validateResume(c, profile, "truthful").ok).toBe(true);
+  c.summary.text = "Skills include TypeScript, Node.js and PostgreSQL. Previously built REST services in Go.";
+  expect(validateResume(c, profile, "truthful").ok).toBe(true);
+});
+
+test("R14: a sentence-initial word used lowercase elsewhere in the document is exempt", () => {
+  const c = fixture();
+  c.summary.text = "Engineer who keeps feedback loops fast, in TypeScript and Go.";
+  c.sections[0].items[1].bullets[2].text = "Fast CI came from parallelizing test suites, cutting it from 25 to 9 minutes.";
+  expect(validateResume(c, profile, "truthful").ok).toBe(true);
+  c.summary.text = "Engineer working in TypeScript and Go.";
+  expect(errs(validateResume(c, profile, "truthful"))).toContain('sections[0].items[1].bullets[2]: "Fast" is not supported by the cited entries');
+});
