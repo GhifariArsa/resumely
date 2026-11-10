@@ -128,7 +128,7 @@ export async function applyJob(opts: {
   const payload = buildAgentPayload(profile);
 
   onProgress?.("parsing job…");
-  const job = await runAgentStep({
+  const { value: job } = await runAgentStep({
     adapter,
     name: harness,
     workspace: createRunWorkspace(l.runs, "parse", runId),
@@ -144,7 +144,7 @@ export async function applyJob(opts: {
 
   onProgress?.(`writing resume (${harness})…`);
   const writeWs = createRunWorkspace(l.runs, "write", runId);
-  const content = await runAgentStep({
+  const { value: content, warnings: writeWarnings } = await runAgentStep({
     adapter,
     name: harness,
     workspace: writeWs,
@@ -175,7 +175,7 @@ export async function applyJob(opts: {
   }
   onProgress?.(`done: ${v.pdfPath}`);
   if (opts.open !== false) await openFile(v.pdfPath);
-  return { app, pdfPath: v.pdfPath, pages: v.pages, version: v.version, gaps: content.gaps, warnings: [...warnings, ...v.warnings] };
+  return { app, pdfPath: v.pdfPath, pages: v.pages, version: v.version, gaps: content.gaps, warnings: [...warnings, ...writeWarnings.map((w) => `fabrication: ${w}`), ...v.warnings] };
 }
 
 export function pdfIn(dir: string): string {

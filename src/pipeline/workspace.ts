@@ -33,7 +33,7 @@ export async function runAgentStep<T>(opts: {
   timeoutMs: number;
   maxRetries?: number;
   onProgress?: (msg: string) => void;
-}): Promise<T> {
+}): Promise<{ value: T; warnings: string[] }> {
   const { workspace } = opts;
   const maxRetries = opts.maxRetries ?? 2;
   mkdirSync(join(workspace, "out"), { recursive: true });
@@ -68,7 +68,7 @@ export async function runAgentStep<T>(opts: {
         errors = [parseError];
       } else {
         const r = opts.validate(raw);
-        if (r.ok) return r.value;
+        if (r.ok) return { value: r.value, warnings: r.warnings };
         errors = r.errors;
       }
     }

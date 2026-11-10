@@ -1,9 +1,10 @@
 import type { z } from "zod";
 import type { EntryType, Profile } from "../profile/schema";
+import { hasToken, scanClaims } from "../checks/fabrication";
 import { unsupportedChars } from "../render/latex-escape";
 import { ParsedJob, ResumeContent } from "./schemas";
 
-export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
+export type ValidationResult<T> = { ok: true; value: T; warnings: string[] } | { ok: false; errors: string[] };
 
 function formatPath(path: PropertyKey[]): string {
   let out = "";
@@ -23,7 +24,7 @@ export function schemaErrors(issues: z.core.$ZodIssue[]): string[] {
 
 export function validateParsedJob(raw: unknown): ValidationResult<ParsedJob> {
   const r = ParsedJob.safeParse(raw);
-  return r.success ? { ok: true, value: r.data } : { ok: false, errors: schemaErrors(r.error.issues) };
+  return r.success ? { ok: true, value: r.data, warnings: [] } : { ok: false, errors: schemaErrors(r.error.issues) };
 }
 
 const KIND_TYPES: Record<ResumeContent["sections"][number]["kind"], EntryType[]> = {
@@ -43,13 +44,28 @@ function profileSkills(profile: Profile): Set<string> {
   return new Set(all.map(normaliseSkill));
 }
 
-export function validateResume(raw: unknown, profile: Profile, mode: "truthful"): ValidationResult<ResumeContent> {
+export function validateResume(raw: unknown, profile: Profile, mode: "truthful" | "stretch"): ValidationResult<ResumeContent> {
   const r = ResumeContent.safeParse(raw);
   if (!r.success) return { ok: false, errors: schemaErrors(r.error.issues) };
   const value = r.data;
   const byId = new Map(profile.entries.map((e) => [e.id, e]));
   const known = new Set(byId.keys());
   const errors: string[] = [];
+  const warnings: string[] = [];
+  const profileSkillText = Object.values(profile.skills).flat();
+  /** Flag numbers/proper nouns the cited entries don't support: errors in truthful mode, warnings in stretch. */
+  const checkClaims = (where: string, text: string, ids: string[]) => {
+    const sources = [
+      ...profileSkillText,
+      ...ids.flatMap((id) => {
+        const e = byId.get(id);
+        return e ? [e.title, e.org ?? "", e.body, ...e.skills, ...e.tags] : [];
+      }),
+    ];
+    for (const tok of scanClaims(text, sources)) {
+      (mode === "truthful" ? errors : warnings).push(`${where}: "${tok}" is not supported by the cited entries`);
+    }
+  };
   const checkIds = (where: string, ids: string[]) => {
     for (const id of ids) if (!known.has(id)) errors.push(`${where}: unknown entry id "${id}"`);
   };
@@ -63,6 +79,7 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful")
   if (value.summary) {
     checkIds("summary", value.summary.entry_ids);
     checkChars("summary", value.summary.text);
+    checkClaims("summary", value.summary.text, value.summary.entry_ids);
   }
   value.sections.forEach((s, i) => {
     checkChars(`sections[${i}].title`, s.title);
@@ -77,6 +94,7 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful")
         const bat = `${at}.bullets[${k}]`;
         checkIds(bat, b.entry_ids);
         checkChars(bat, b.text);
+        checkClaims(bat, b.text, b.entry_ids);
         if (!b.entry_ids.includes(item.entry_id)) errors.push(`${bat}: bullet must cite its item's entry "${item.entry_id}"`);
         if (mode === "truthful" && b.basis === "inferred") errors.push(`${bat}: inferred claims are not allowed in truthful mode`);
       });
@@ -87,8 +105,9 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful")
     checkChars(`skills[${i}].category`, group.category);
     group.items.forEach((v, j) => {
       checkChars(`skills[${i}].items[${j}]`, v);
-      if (!skills.has(normaliseSkill(v))) errors.push(`skills[${i}].items[${j}]: "${v}" is not in your profile`);
+      const inBody = mode === "stretch" && profile.entries.some((e) => hasToken(e.body, v.trim()));
+      if (!skills.has(normaliseSkill(v)) && !inBody) errors.push(`skills[${i}].items[${j}]: "${v}" is not in your profile`);
     });
   });
-  return errors.length ? { ok: false, errors } : { ok: true, value };
+  return errors.length ? { ok: false, errors } : { ok: true, value, warnings };
 }

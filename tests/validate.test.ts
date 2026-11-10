@@ -131,6 +131,37 @@ test("unsupported characters are rejected with code point; mapped symbols pass",
     'skills[0].category: unsupported character "✨" (U+2728)',
   ]);
   const d = fixture();
-  d.sections[0].items[0].bullets[0].text = "Grew revenue ≈ 2× — “fast” • Zoë’s team…";
+  d.sections[0].items[0].bullets[0].text = "Grew revenue ≈ 2× — “fast” • the team’s…";
   expect(validateResume(d, profile, "truthful").ok).toBe(true);
+});
+
+test("fabricated proper noun is an error in truthful, a warning in stretch", () => {
+  const c = fixture();
+  c.sections[0].items[0].bullets[0].text = "Scaled Kafka pipelines.";
+  const t = validateResume(c, profile, "truthful");
+  expect(errs(t)).toContain('sections[0].items[0].bullets[0]: "Kafka" is not supported by the cited entries');
+  const s = validateResume(c, profile, "stretch");
+  expect(s.ok).toBe(true);
+  if (s.ok) expect(s.warnings).toContain('sections[0].items[0].bullets[0]: "Kafka" is not supported by the cited entries');
+});
+
+test("fabricated number in summary is caught", () => {
+  const c = fixture();
+  c.summary.text = "Engineer with 15 years of experience.";
+  expect(errs(validateResume(c, profile, "truthful")).join("\n")).toContain('summary: "15" is not supported');
+});
+
+test("inferred basis is accepted in stretch", () => {
+  const c = fixture();
+  c.sections[0].items[0].bullets[2].basis = "inferred";
+  expect(validateResume(c, profile, "stretch").ok).toBe(true);
+});
+
+test("body-only skill accepted in stretch, rejected in truthful", () => {
+  const c = fixture();
+  c.skills[2].items.push("Kubernetes");
+  expect(errs(validateResume(c, profile, "truthful"))).toContain('skills[2].items[4]: "Kubernetes" is not in your profile');
+  expect(validateResume(c, profile, "stretch").ok).toBe(true);
+  c.skills[2].items.push("Haskell");
+  expect(validateResume(c, profile, "stretch").ok).toBe(false);
 });
