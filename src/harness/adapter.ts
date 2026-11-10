@@ -9,10 +9,12 @@ export type { AdapterConfig };
 export const PRESETS: Record<"claude" | "codex" | "pi", AdapterConfig> = {
   claude: {
     command: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits", "--allowedTools", "Read Write Edit Glob"],
+    research_command: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits", "--allowedTools", "Read Write Edit Glob WebSearch WebFetch"],
     check: ["claude", "--version"],
   },
   codex: {
     command: ["codex", "exec", "--skip-git-repo-check", "-s", "workspace-write", "-C", "{workspace}", "{prompt}"],
+    research_command: ["codex", "--search", "exec", "--skip-git-repo-check", "-s", "workspace-write", "-C", "{workspace}", "{prompt}"],
     check: ["codex", "--version"],
   },
   pi: {
@@ -21,11 +23,17 @@ export const PRESETS: Record<"claude" | "codex" | "pi", AdapterConfig> = {
   },
 };
 
-export function resolveAdapter(name: string, cfg: Config): AdapterConfig {
+export function resolveAdapter(name: string, cfg: Config): AdapterConfig;
+export function resolveAdapter(name: string, cfg: Config, opts: { research: true }): AdapterConfig | null;
+export function resolveAdapter(name: string, cfg: Config, opts?: { research?: boolean }): AdapterConfig | null;
+export function resolveAdapter(name: string, cfg: Config, opts?: { research?: boolean }): AdapterConfig | null {
   const found = cfg.adapters[name] ?? (Object.hasOwn(PRESETS, name) ? PRESETS[name as keyof typeof PRESETS] : undefined);
-  if (found) return found;
-  const known = [...new Set([...Object.keys(PRESETS), ...Object.keys(cfg.adapters)])].join(", ");
-  throw new UserError(`Unknown harness "${name}"`, `Known harnesses: ${known}`);
+  if (!found) {
+    const known = [...new Set([...Object.keys(PRESETS), ...Object.keys(cfg.adapters)])].join(", ");
+    throw new UserError(`Unknown harness "${name}"`, `Known harnesses: ${known}`);
+  }
+  if (!opts?.research) return found;
+  return found.research_command ? { ...found, command: found.research_command } : null;
 }
 
 /**

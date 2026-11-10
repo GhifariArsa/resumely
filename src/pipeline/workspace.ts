@@ -5,7 +5,8 @@ import { UserError } from "../errors";
 import { HarnessError, runHarness } from "../harness/adapter";
 import type { ValidationResult } from "./validate";
 
-export function createRunWorkspace(runsDir: string, step: "parse" | "write", runId?: string): string {
+export function createRunWorkspace(runsDir: string, step: string, runId?: string): string {
+  if (!/^[a-z0-9-]+$/.test(step)) throw new Error(`Invalid step name "${step}"`);
   const id = runId ?? newRunId();
   const ws = join(runsDir, id, step);
   mkdirSync(join(ws, "out"), { recursive: true });

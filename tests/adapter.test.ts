@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { UserError } from "../src/errors";
@@ -53,6 +53,28 @@ describe("resolveAdapter", () => {
       const text = u.message + (u.hint ?? "");
       for (const n of ["claude", "codex", "pi", "foo"]) expect(text).toContain(n);
     }
+  });
+});
+
+describe("resolveAdapter research", () => {
+  test("pi has no research command", () => {
+    expect(resolveAdapter("pi", cfg(), { research: true })).toBeNull();
+  });
+  test("claude research command allows web tools", () => {
+    const a = resolveAdapter("claude", cfg(), { research: true })!;
+    const i = a.command.indexOf("--allowedTools");
+    expect(a.command[i + 1]).toContain("WebSearch WebFetch");
+  });
+  test("codex research command uses --search", () => {
+    expect(resolveAdapter("codex", cfg(), { research: true })!.command.slice(0, 3)).toEqual(["codex", "--search", "exec"]);
+  });
+  test("user research_command overrides preset; absent means null", () => {
+    const rc = ["mine", "{prompt}"];
+    expect(resolveAdapter("claude", cfg({ claude: { command: ["x"], research_command: rc } }), { research: true })!.command).toEqual(rc);
+    expect(resolveAdapter("foo", cfg({ foo: { command: ["foo"] } }), { research: true })).toBeNull();
+  });
+  test("without research option the normal command is returned", () => {
+    expect(resolveAdapter("claude", cfg()).command).toEqual(PRESETS.claude.command);
   });
 });
 
@@ -112,24 +134,51 @@ describe("runHarness", () => {
     expect(Date.now() - t0).toBeLessThan(3000);
   });
 
-  test("fake harness writes files, logs, and call index", async () => {
-    const ws = tmp();
-    const script = join(tmp(), "script.json");
-    writeFileSync(script, JSON.stringify({ "0": { "out/a.json": { x: 1 }, "b.json": "INVALID" }, "1": { "c.json": [2] } }));
+  test("fake harness: step-keyed attempts, .fake-count, .calls log", async () => {
+    const root = tmp();
+    const ws = join(root, "write");
+    mkdirSync(ws);
+    const script = join(root, "script.json");
+    writeFileSync(script, JSON.stringify({ write: [{ "out/a.json": { x: 1 }, "b.json": "INVALID" }, { "c.json": [2] }], other: [{}] }));
     process.env.FAKE_HARNESS_SCRIPT = script;
     try {
       const a = { command: ["bun", FAKE, "{workspace}"] };
       const r = await runHarness(a, base(ws));
       expect(JSON.parse(readFileSync(join(ws, "out/a.json"), "utf8"))).toEqual({ x: 1 });
       expect(readFileSync(join(ws, "b.json"), "utf8")).toBe("{not json");
-      expect(readFileSync(script + ".count", "utf8")).toBe("0");
+      expect(readFileSync(join(ws, ".fake-count"), "utf8")).toBe("0");
       expect(existsSync(join(ws, "stdout.log"))).toBe(true);
-      expect(existsSync(join(ws, "stderr.log"))).toBe(true);
       expect(r.durationMs).toBeGreaterThanOrEqual(0);
       await runHarness(a, base(ws));
       expect(JSON.parse(readFileSync(join(ws, "c.json"), "utf8"))).toEqual([2]);
+      await runHarness(a, base(ws)); // extra attempt reuses last element
+      expect(readFileSync(join(ws, ".fake-count"), "utf8")).toBe("2");
+      const ws2 = join(root, "other");
+      mkdirSync(ws2);
+      await runHarness(a, base(ws2));
+      mkdirSync(join(root, "unscripted"));
+      await runHarness(a, base(join(root, "unscripted")));
+      expect(readFileSync(script + ".calls", "utf8")).toBe("write\nwrite\nwrite\nother\nunscripted\n");
     } finally {
       delete process.env.FAKE_HARNESS_SCRIPT;
+    }
+  });
+
+  test("FAKE_HARNESS_FAIL_STEP fails only that step", async () => {
+    const root = tmp();
+    const bad = join(root, "research");
+    const good = join(root, "write");
+    mkdirSync(bad);
+    mkdirSync(good);
+    process.env.FAKE_HARNESS_FAIL_STEP = "research";
+    try {
+      const a = { command: ["bun", FAKE, "{workspace}"] };
+      const e = await runHarness(a, base(bad)).catch((x) => x);
+      expect(e).toBeInstanceOf(HarnessError);
+      expect(e.kind).toBe("rate_limit");
+      await runHarness(a, base(good));
+    } finally {
+      delete process.env.FAKE_HARNESS_FAIL_STEP;
     }
   });
 

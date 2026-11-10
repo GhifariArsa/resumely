@@ -55,3 +55,19 @@ test("adapter model is optional and parsed", () => {
   expect(c.adapters.mine!.model).toBe("fast");
   expect(c.adapters.other!.model).toBeUndefined();
 });
+
+test("review config defaults and validation", () => {
+  const d = mkdtempSync(join(tmpdir(), "resumely-"));
+  writeFileSync(join(d, "config.toml"), "pages = 1\n");
+  const c = loadConfig(d);
+  expect(c.max_review_rounds).toBe(2);
+  expect(c.banned_phrases).toEqual([]);
+  writeFileSync(join(d, "config.toml"), "max_review_rounds = -1\n");
+  const e = expectUserError(() => loadConfig(d));
+  expect(e.hint).toContain("max_review_rounds");
+  writeFileSync(join(d, "config.toml"), 'max_review_rounds = 0\nbanned_phrases = ["synergy"]\n[adapters.x]\ncommand = ["a"]\nresearch_command = ["b", "{prompt}"]\n');
+  const c2 = loadConfig(d);
+  expect(c2.max_review_rounds).toBe(0);
+  expect(c2.banned_phrases).toEqual(["synergy"]);
+  expect(c2.adapters.x!.research_command).toEqual(["b", "{prompt}"]);
+});

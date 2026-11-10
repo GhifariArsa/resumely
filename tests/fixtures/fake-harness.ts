@@ -1,22 +1,30 @@
 // Fake coding-agent CLI for tests. Usage: bun fake-harness.ts <workspace>
-// FAKE_HARNESS_SCRIPT: JSON file { "<call-index>": { "<relative path>": <json | "INVALID"> } }
-//   A call may also set "$stderr" (printed to stderr) and "$exit" (exit code) instead of/after writing files.
+// The step name is basename(workspace).
+// FAKE_HARNESS_SCRIPT: JSON file { "<step>": [ { "<relative path>": <json | "INVALID"> }, ... ] }
+//   Array index = attempt number for that workspace (counted in <workspace>/.fake-count); extra attempts
+//   reuse the last element; {} writes nothing. An attempt may also set "$stderr" (printed to stderr) and
+//   "$exit" (exit code). Every call appends "<step>\n" to <script>.calls.
 // FAKE_HARNESS_EXIT=1: fail with a rate-limit message.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+// FAKE_HARNESS_FAIL_STEP=<step>: fail with a rate-limit message for that step only.
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
-if (process.env.FAKE_HARNESS_EXIT === "1") {
+const workspace = process.argv[2] ?? process.cwd();
+const step = basename(workspace);
+if (process.env.FAKE_HARNESS_EXIT === "1" || process.env.FAKE_HARNESS_FAIL_STEP === step) {
   console.error("usage limit reached");
   process.exit(1);
 }
-const workspace = process.argv[2] ?? process.cwd();
 const scriptPath = process.env.FAKE_HARNESS_SCRIPT;
 if (scriptPath) {
-  const countPath = `${scriptPath}.count`;
+  appendFileSync(`${scriptPath}.calls`, `${step}\n`);
+  mkdirSync(workspace, { recursive: true });
+  const countPath = join(workspace, ".fake-count");
   const idx = existsSync(countPath) ? Number(readFileSync(countPath, "utf8")) + 1 : 0;
   writeFileSync(countPath, String(idx));
-  const script = JSON.parse(readFileSync(scriptPath, "utf8")) as Record<string, Record<string, unknown>>;
-  const call = script[String(idx)] ?? {};
+  const script = JSON.parse(readFileSync(scriptPath, "utf8")) as Record<string, Record<string, unknown>[]>;
+  const attempts = script[step] ?? [];
+  const call = attempts[Math.min(idx, attempts.length - 1)] ?? {};
   for (const [rel, value] of Object.entries(call)) {
     if (rel.startsWith("$")) continue;
     const p = join(workspace, rel);

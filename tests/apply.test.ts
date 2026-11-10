@@ -42,7 +42,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function script(s: Record<string, Record<string, unknown>>) {
+function script(s: Record<string, Record<string, unknown>[]>) {
   const p = join(root, "script.json");
   writeFileSync(p, JSON.stringify(s));
   process.env.FAKE_HARNESS_SCRIPT = p;
@@ -53,7 +53,7 @@ const run = async () => applyJob({ root, input: await readJobFile(join(fx, "jobs
 
 describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
   test("happy path", async () => {
-    script({ "0": parseOut, "1": writeOut(resume) });
+    script({ parse: [parseOut], write: [writeOut(resume)] });
     const { app, pages } = await run();
     expect(app.slug).toMatch(/-atlas-freight-/);
     const v1 = join(app.dir, "resume/v1");
@@ -80,7 +80,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
   });
 
   test("retry after invalid JSON keeps errors.md and per-attempt logs", async () => {
-    script({ "0": parseOut, "1": { "out/resume.json": "INVALID" }, "2": writeOut(resume) });
+    script({ parse: [parseOut], write: [{ "out/resume.json": "INVALID" }, writeOut(resume)] });
     const { app } = await run();
     expect(existsSync(join(app.dir, "resume/v1/resume.json"))).toBe(true);
     const runs = layout(root).runs;
@@ -91,7 +91,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
   });
 
   test("harness failure in the write step names the write workspace", async () => {
-    script({ "0": parseOut, "1": { $stderr: "model overloaded, giving up", $exit: 1 } });
+    script({ parse: [parseOut], write: [{ $stderr: "model overloaded, giving up", $exit: 1 }] });
     const e = (await run().catch((x) => x)) as HarnessError;
     expect(e).toBeInstanceOf(HarnessError);
     expect(e.kind).toBe("unknown");
@@ -102,7 +102,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
   });
 
   test("render into a new version with another template", async () => {
-    script({ "0": parseOut, "1": writeOut(resume) });
+    script({ parse: [parseOut], write: [writeOut(resume)] });
     const { app } = await run();
     const r = await renderApplication({ root, query: "atlas", template: "classic", open: false });
     expect(r.version).toBe(2);
@@ -119,7 +119,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
   });
 
   test("render resolves from the frozen snapshot and recomputes trace from edited content", async () => {
-    script({ "0": parseOut, "1": writeOut(resume) });
+    script({ parse: [parseOut], write: [writeOut(resume)] });
     const { app } = await run();
     const live = join(layout(root).profile, "experience/atlas-labs.md");
     writeFileSync(live, readFileSync(live, "utf8").replace("title: Senior Software Engineer", "title: Chief Everything Officer"));
@@ -136,7 +136,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
   });
 
   test("corrupt or hand-broken resume.json gives a UserError on render", async () => {
-    script({ "0": parseOut, "1": writeOut(resume) });
+    script({ parse: [parseOut], write: [writeOut(resume)] });
     const { app } = await run();
     const p = join(app.dir, "resume/v1/resume.json");
     writeFileSync(p, "{ nope");
@@ -153,7 +153,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
   });
 
   test("PDF metadata and non-English warning", async () => {
-    script({ "0": { "out/parsed-job.json": { ...parsedJob, language: "fr" } }, "1": writeOut(resume) });
+    script({ parse: [{ "out/parsed-job.json": { ...parsedJob, language: "fr" } }], write: [writeOut(resume)] });
     const { app, warnings, pdfPath } = await run();
     expect(warnings).toContain('job description language is "fr"; v1 is English-only');
     const tex = readFileSync(join(app.dir, "resume/v1/resume.tex"), "utf8");
@@ -162,7 +162,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
   });
 
   test("English job has no language warning", async () => {
-    script({ "0": parseOut, "1": writeOut(resume) });
+    script({ parse: [parseOut], write: [writeOut(resume)] });
     const { warnings } = await run();
     expect(warnings.some((w) => w.includes("English-only"))).toBe(false);
   });
@@ -172,7 +172,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
     mkdirSync(tpl, { recursive: true });
     writeFileSync(join(tpl, "template.toml"), 'id = "broken"\nengine = "pdflatex"\n');
     writeFileSync(join(tpl, "resume.tex.njk"), "\\documentclass{article}\\begin{document}\\undefinedmacro\\end{document}\n");
-    script({ "0": parseOut, "1": writeOut(resume) });
+    script({ parse: [parseOut], write: [writeOut(resume)] });
     const e = (await applyJob({ root, input: await readJobFile(join(fx, "jobs/backend.md")), template: "broken", open: false }).catch((x) => x)) as UserError;
     expect(e).toBeInstanceOf(UserError);
     expect(e.message).toBe("LaTeX compile failed");
@@ -182,7 +182,7 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
 });
 
 test("empty or starter profile fails before any agent call", async () => {
-  script({ "0": parseOut, "1": writeOut(resume) });
+  script({ parse: [parseOut], write: [writeOut(resume)] });
   const fresh = mkdtempSync(join(tmpdir(), "resumely-apply-empty-"));
   try {
     initDataRoot(fresh);
@@ -197,11 +197,11 @@ test("empty or starter profile fails before any agent call", async () => {
   } finally {
     rmSync(fresh, { recursive: true, force: true });
   }
-  expect(existsSync(join(root, "script.json.count"))).toBe(false);
+  expect(existsSync(join(root, "script.json.calls"))).toBe(false);
 });
 
 test("missing latexmk fails before any agent call", async () => {
-  script({ "0": parseOut, "1": writeOut(resume) });
+  script({ parse: [parseOut], write: [writeOut(resume)] });
   const saved = process.env.PATH;
   process.env.PATH = "/nonexistent";
   let e: UserError | undefined;
@@ -213,11 +213,11 @@ test("missing latexmk fails before any agent call", async () => {
   expect(e).toBeInstanceOf(UserError);
   expect(e!.message).toBe("latexmk not found");
   expect(e!.hint).toBe("Install TeX Live (macOS: brew install --cask mactex-no-gui)");
-  expect(existsSync(join(root, "script.json.count"))).toBe(false);
+  expect(existsSync(join(root, "script.json.calls"))).toBe(false);
 });
 
 test.skipIf(!hasLatex)("unknown entry id on all write attempts: app exists, no version", async () => {
-  script({ "0": parseOut, "1": writeOut(badResume), "2": writeOut(badResume), "3": writeOut(badResume) });
+  script({ parse: [parseOut], write: [writeOut(badResume)] });
   let err: unknown;
   await run().catch((e) => (err = e));
   expect(err).toBeInstanceOf(UserError);
@@ -228,7 +228,7 @@ test.skipIf(!hasLatex)("unknown entry id on all write attempts: app exists, no v
 });
 
 test.skipIf(!hasLatex)("invalid parse on all attempts: no application dir", async () => {
-  script({ "0": { "out/parsed-job.json": "INVALID" }, "1": { "out/parsed-job.json": "INVALID" }, "2": { "out/parsed-job.json": "INVALID" } });
+  script({ parse: [{ "out/parsed-job.json": "INVALID" }] });
   await expect(run()).rejects.toThrow("after 3 attempts");
   expect(listApplications(layout(root).applications)).toEqual([]);
   expect(existsSync(layout(root).applications) ? readdirSync(layout(root).applications) : []).toEqual([]);
