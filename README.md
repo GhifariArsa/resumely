@@ -22,7 +22,7 @@ resumely init                # creates ~/resumely/ with a starter profile and co
 # edit ~/resumely/profile/   (about.md, skills.yaml, experience/, projects/, education/, extras/)
 resumely apply --clip        # job description from the clipboard (or pass a file or URL)
 resumely ls                  # list applications
-resumely open <app>          # open the latest resume PDF (--version N for another)
+resumely open <app>          # open the latest resume PDF, or the cover letter if there is no resume (--version N for another)
 ```
 
 ### apply
@@ -42,10 +42,10 @@ resumely apply [input] [--clip] [--harness <name>] [--template <id>] [--pages <n
 Other commands:
 
 - `ls [--status <s>] [--company <text>]`, `open <app> [--cover] [--version N]`
-- `render <app> [--cover] [--template <id>] [--version N]` re-renders a saved version (for example with another template) without calling the agent
+- `render <app> --template <id> [--cover] [--version N]` re-renders a saved version with the given template (required) without calling the agent
 - `status <app> <drafted|applied|interviewing|rejected|offer>`: `applied` is refused while a document is not ready unless you pass `--force`
 - `note <app> <text...>`: dated note on an application
-- `export <app> [--version N] [--to <dir>]`: copy the send-ready PDFs (default `~/Desktop`)
+- `export <app> [--version N] [--to <dir>]`: copy the send-ready PDFs of whichever documents exist (default `~/Desktop`)
 - `profile show [id]`, `profile context`
 
 Set `RESUMELY_HOME` to use a different data root. Every run produces versioned outputs under `applications/<date>-<company>-<role>/{resume,cover-letter}/vN/` (PDF, source, trace, `review.json`, `meta.json`).
@@ -56,11 +56,11 @@ The cover letter is written from your profile, the job and the company research,
 
 ## Company research and privacy
 
-Before writing, the agent searches the web for the company (what it does, recent news, engineering culture) using the harness's own web tools. Only the company name and role title go into those searches; your profile is not part of the research step. Facts must carry a source URL. If nothing reliable is found (an unknown or fictional company, say) the letter is written from the posting alone rather than guessing, and `apply` prints `warning: research failed`. `claude` and `codex` have research presets; `pi` has no web tools, so research is skipped with a warning unless you set `research_command` on your adapter. `--no-research` skips it.
+Before writing, the agent searches the web for the company (what it does, recent news, engineering culture) using the harness's own web tools. The research step receives exactly one data file, `target.json`, holding the company name, the role title, the location (if the posting states one) and the posting's URL (if you applied from a URL), plus the output schema. It does not receive the job posting text, your profile or anything else from your data root: it runs in a fresh temporary directory outside the data root, and only its output and logs are copied back to `.runs/<run>/research/`. Fetched pages are treated as untrusted data. Facts must carry a source URL. If nothing verifiable is found (an unknown or fictional company, say) the research returns no facts, `meta.json` records `research: "none_found"`, and the letter is written from the posting alone rather than guessing. `apply` prints `warning: research failed` only when the step itself fails. `claude` and `codex` have research presets; `pi` has no web tools, so research is skipped with a warning unless you set `research_command` on your adapter. `--no-research` skips it.
 
 ## Review loop and ready gates
 
-Each document goes through: write, compile, hard checks (ATS-readable text, page count, trace of every claim to profile entries), an HR-persona review, and up to 2 revision rounds. Resume and cover letter run concurrently. Expect roughly 10 to 17 minutes per application with the real harnesses (measured: claude about 12 min, codex about 12 min, pi about 17 min), since each stage is a separate headless agent call. `meta.json` records `rounds`, `reviewed_final` (whether the final text was reviewed and passed), `research` and `review_verdict`.
+Each document goes through: write, compile, hard checks (ATS-readable text, page count, trace of every claim to profile entries), an HR-persona review, and up to 2 revision rounds. Resume and cover letter run concurrently. Expect roughly 10 to 17 minutes per application with the real harnesses (measured: claude about 12 min, codex about 12 min, pi about 17 min), since each stage is a separate headless agent call. `meta.json` records `rounds`, `reviewed_final` (whether the final text is the one the last review judged, whatever its verdict), `research` (`used`, `none_found`, `skipped` or `failed`) and `review_verdict` (that last review's verdict). The reviewer asks for a revision only when a fix would plausibly change a recruiter's shortlist decision (or on overflow, an ATS failure or a templated letter); other suggestions stay in `review.json` as polish. A revision that changes nothing ends the loop.
 
 A version is **ready** when an ATS can read the PDF and it fits its page target. If not, `apply` prints `not ready: <reason>`, exits with status 1, and `status ... applied` is refused without `--force`. A version that still got a `revise` verdict after the last round is still ready, but check `review.json` for what the reviewer wanted. Requirements your profile can't back are listed as `gaps:` (add them to your profile if true), not invented.
 
@@ -96,7 +96,7 @@ A `## Private` section (also `## Private:` or `## Private notes`, up to the next
 
 ### Agent access
 
-The agent runs with file tools in a workspace inside your data root (`~/resumely/.runs/<run>/`, kept as a debug trail), so it could read other files there, including your raw profile. How far it can reach depends on the harness: `claude` is limited to the tools in `--allowedTools`, `codex` runs in its `workspace-write` sandbox, and `pi` has no sandbox. Job postings are untrusted input; treat job URLs from unknown sources with care.
+The writer and reviewer agents run with file tools in a workspace inside your data root (`~/resumely/.runs/<run>/`, kept as a debug trail), so they could read other files there, including your raw profile. The web-capable research agent runs outside the data root (see [Company research and privacy](#company-research-and-privacy)). How far it can reach depends on the harness: `claude` is limited to the tools in `--allowedTools`, `codex` runs in its `workspace-write` sandbox, and `pi` has no sandbox. Job postings are untrusted input; treat job URLs from unknown sources with care.
 
 ### Debugging what the agent sees
 
