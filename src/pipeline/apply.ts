@@ -1,8 +1,8 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
-import type { ZodType } from "zod";
-import { createApplication, findApplication, latestVersion, nextVersionDir, sendReadyName } from "../application/store";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { createApplication, findDuplicate, latestVersion, saveExtraRaw } from "../application/store";
 import type { Application } from "../application/store";
+import { keywordCoverage } from "../checks/keywords";
 import { openFile } from "../commands/open";
 import { loadConfig } from "../config";
 import { UserError } from "../errors";
@@ -10,104 +10,91 @@ import { resolveAdapter } from "../harness/adapter";
 import type { JobSource } from "../job/intake";
 import { layout, requireDataRoot } from "../paths";
 import { buildAgentPayload } from "../profile/context";
-import { loadAbout, loadProfile } from "../profile/load";
-import type { About } from "../profile/schema";
-import { compileTex } from "../render/compile";
-import { builtinTemplatesDir, findTemplate, renderResume } from "../render/render";
-import type { TemplateMeta } from "../render/render";
-import { EntrySnapshot, resolveResume, type EntryLike, type ResolvedResume } from "./resolve";
-import { jsonSchemaFor, ResumeContent } from "./schemas";
-import { schemaErrors, validateParsedJob, validateResume } from "./validate";
+import { loadProfile, loadVoiceSamples } from "../profile/load";
+import { builtinTemplatesDir, findTemplate, formatLetterDate } from "../render/render";
+import { DEFAULT_BANNED } from "./banned";
+import { coverDocument, profileTextOf, resumeDocument, type Doc, type DocContext } from "./documents";
+import { refine, type DocumentKind, type RefineResult } from "./refine";
+import { runResearch } from "./research";
+import { jsonSchemaFor, type ParsedJob, type ResumeContent, type Review } from "./schemas";
+import { validateParsedJob } from "./validate";
+import { citedFacts, coverEntryIds, coverTrace, json, notReadyReasons, pickVersion, resumeEntryIds, resumeTrace, saveVersion, snapshotOf, versionMeta, isReady } from "./version";
+import { resolveResume } from "./resolve";
 import { createRunWorkspace, newRunId, runAgentStep } from "./workspace";
+
+export { renderApplication } from "./rerender";
+
+export type DocResult = { pdfPath: string; version: number; pages: number; ready: boolean; review: Review | null };
 
 export type ApplyResult = {
   app: Application;
-  pdfPath: string;
-  pages: number;
-  version: number;
+  resume?: DocResult;
+  cover?: DocResult;
+  /** Documents that could not be produced; `hint` names the failing step's workspace when known. */
+  failures: { kind: DocumentKind; message: string; hint?: string }[];
   gaps: ResumeContent["gaps"];
+  /** Stretch-mode bullets the user should check. */
+  inferred: { text: string; entry_ids: string[] }[];
   warnings: string[];
 };
 
-const prompt = (name: string) => Bun.file(join(import.meta.dir, "prompts", name)).text();
-const json = (v: unknown) => JSON.stringify(v, null, 2) + "\n";
-
-function flattenTrace(r: ResolvedResume) {
-  const out: { section: string; item: string; bullet: number; text: string; entry_ids: string[]; basis: string }[] = [];
-  if (r.summary) out.push({ section: "summary", item: "", bullet: 0, text: r.summary.text, entry_ids: r.summary.entry_ids, basis: "direct" });
-  for (const s of r.sections) {
-    for (const it of s.items) {
-      it.bullets.forEach((b, i) => out.push({ section: s.title, item: it.heading, bullet: i, text: b.text, entry_ids: b.entry_ids, basis: b.basis }));
-    }
-  }
-  return out;
-}
-
-function snapshotOf(c: ResumeContent, entries: EntryLike[]) {
-  const ids = new Set<string>(c.summary?.entry_ids ?? []);
-  for (const s of c.sections) for (const it of s.items) { ids.add(it.entry_id); for (const b of it.bullets) b.entry_ids.forEach((i) => ids.add(i)); }
-  return entries.filter((e) => ids.has(e.id));
-}
-
-/** Resolve + render + compile in memory, then allocate the version dir and write everything. */
-async function produceVersion(o: {
-  app: Application;
-  about: About;
-  content: ResumeContent;
-  /** Entries to resolve headings/dates from: the live profile (apply) or the version's frozen snapshot (render). */
-  entries: EntryLike[];
-  template: TemplateMeta;
-  filename: string;
-  targetPages: number;
-  meta: Record<string, unknown>;
-  /** Raw snapshot to copy verbatim (render); otherwise one is built from `entries`. */
-  snapshot?: string;
-  onProgress?: (m: string) => void;
-}): Promise<{ dir: string; version: number; pdfPath: string; pages: number; warnings: string[] }> {
-  o.onProgress?.("compiling…");
-  const resume = resolveResume(o.content, o.entries);
-  const tex = renderResume(o.template, { about: o.about, resume, job: { company: o.app.meta.company, role: o.app.meta.role } });
-  const { pdf, pages } = await compileTex(tex, o.template.engine);
-  const { dir, version } = nextVersionDir(o.app, "resume");
-  const pdfName = sendReadyName(o.filename, o.about, "Resume", o.app.meta.company);
-  writeFileSync(join(dir, "resume.json"), json(o.content));
-  writeFileSync(join(dir, "resume.tex"), tex);
-  writeFileSync(join(dir, pdfName), pdf);
-  writeFileSync(join(dir, "trace.json"), json(flattenTrace(resume)));
-  writeFileSync(join(dir, "entries.snapshot.json"), o.snapshot ?? json(snapshotOf(o.content, o.entries)));
-  writeFileSync(
-    join(dir, "meta.json"),
-    json({ ...o.meta, template: o.template.id, mode: "truthful", pages, target_pages: o.targetPages, created: new Date().toISOString() }),
-  );
-  const warnings = pages > o.targetPages ? [`resume is ${pages} pages (target ${o.targetPages})`] : [];
-  return { dir, version, pdfPath: join(dir, pdfName), pages, warnings };
-}
-
-/** ISO 639-1 "en" (also "en-US" etc.), or the word itself in case the agent spells it out. */
-const isEnglish = (lang: string) => /^(en([-_].*)?|english)$/i.test(lang.trim());
-
-/** Read and schema-check a JSON file the user may have edited by hand. */
-function readJsonFile<T>(path: string, schema: ZodType<T>): T {
-  const name = basename(path);
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(path, "utf8"));
-  } catch (e) {
-    throw new UserError(`Invalid ${name} at ${path}`, (e as Error).message);
-  }
-  const r = schema.safeParse(raw);
-  if (!r.success) throw new UserError(`Invalid ${name} at ${path}`, schemaErrors(r.error.issues).join("; "));
-  return r.data;
-}
-
-export async function applyJob(opts: {
+export type ApplyOptions = {
   root: string;
   input: JobSource;
   harness?: string;
   template?: string;
   open?: boolean;
+  mode?: "truthful" | "stretch";
+  pages?: number;
+  cover?: boolean;
+  research?: boolean;
+  review?: boolean;
+  /** After the parse: resolve false to stop (the application is kept). */
+  pause?: (job: ParsedJob, likelyGaps: string[]) => Promise<boolean>;
+  onDuplicate?: (existing: Application) => Promise<"existing" | "new" | "abort">;
   onProgress?: (m: string) => void;
-}): Promise<ApplyResult> {
+};
+
+const TAG: Record<DocumentKind, string> = { resume: "resume", "cover-letter": "cover" };
+
+/** ISO 639-1 "en" (also "en-US" etc.), or the word itself in case the agent spells it out. */
+const isEnglish = (lang: string) => /^(en([-_].*)?|english)$/i.test(lang.trim());
+
+function loadParsed(app: Application): ParsedJob | null {
+  try {
+    const r = validateParsedJob(JSON.parse(readFileSync(join(app.dir, "job", "parsed.json"), "utf8")));
+    return r.ok ? r.value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse the posting and find or create its application, asking `onDuplicate` about an earlier one. */
+async function intake(o: ApplyOptions, appsDir: string, parse: () => Promise<ParsedJob>): Promise<{ app: Application; job: ParsedJob }> {
+  const decide = async (existing: Application): Promise<Application | null> => {
+    if (!o.onDuplicate) throw new UserError(`Already applied: ${existing.slug}`, `Use --into ${existing.slug} to add a version, or --new for a separate application`);
+    const choice = await o.onDuplicate(existing);
+    if (choice === "abort") throw new UserError("Aborted");
+    return choice === "existing" ? existing : null;
+  };
+  let asked = false;
+  let reuse: Application | null = null;
+  const byUrl = o.input.url ? findDuplicate(appsDir, { url: o.input.url, company: "", role: "" }) : null;
+  if (byUrl) {
+    asked = true;
+    reuse = await decide(byUrl);
+  }
+  const job = (reuse && loadParsed(reuse)) || (await parse());
+  if (!asked) {
+    const byRole = findDuplicate(appsDir, { company: job.company, role: job.role });
+    if (byRole) reuse = await decide(byRole);
+  }
+  if (!reuse) return { app: createApplication(appsDir, job, o.input), job };
+  saveExtraRaw(reuse, o.input.text);
+  return { app: reuse, job: loadParsed(reuse) ?? job };
+}
+
+export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
   const { root, onProgress } = opts;
   requireDataRoot(root);
   const l = layout(root);
@@ -122,107 +109,125 @@ export async function applyJob(opts: {
   const harness = opts.harness ?? config.harness;
   const adapter = resolveAdapter(harness, config);
   const template = findTemplate(opts.template ?? config.template, [builtinTemplatesDir(), l.templates]);
+  const mode = opts.mode ?? "truthful";
+  const targetPages = opts.pages ?? config.pages;
+  const wantCover = opts.cover !== false;
   const timeoutMs = config.timeout_minutes * 60_000;
   const runId = newRunId();
   const runDir = join(l.runs, runId);
   const payload = buildAgentPayload(profile);
+  const jobText = opts.input.text;
 
-  onProgress?.("parsing job…");
-  const { value: job } = await runAgentStep({
-    adapter,
-    name: harness,
-    workspace: createRunWorkspace(l.runs, "parse", runId),
-    instructions: await prompt("parse-job.md"),
-    files: { "job.md": opts.input.text, "parsed-job.schema.json": json(jsonSchemaFor("parsed-job")) },
-    outFile: "parsed-job.json",
-    validate: validateParsedJob,
-    timeoutMs,
-    onProgress,
-  });
-  const app = createApplication(l.applications, job, opts.input);
-  const warnings = isEnglish(job.language) ? [] : [`job description language is "${job.language}"; v1 is English-only`];
-
-  onProgress?.(`writing resume (${harness})…`);
-  const writeWs = createRunWorkspace(l.runs, "write", runId);
-  const { value: content, warnings: writeWarnings } = await runAgentStep({
-    adapter,
-    name: harness,
-    workspace: writeWs,
-    instructions: (await prompt("write-resume.md")).replaceAll("{{pages}}", String(config.pages)),
-    files: {
-      "profile.json": json(payload),
-      "job.md": opts.input.text,
-      "parsed-job.json": json(job),
-      "resume.schema.json": json(jsonSchemaFor("resume")),
-    },
-    outFile: "resume.json",
-    validate: (raw) => validateResume(raw, profile, "truthful"),
-    timeoutMs,
-    onProgress,
-  });
-
-  let v;
-  try {
-    v = await produceVersion({
-      app, about: profile.about, content, entries: payload.entries, template, filename: config.filename,
-      targetPages: config.pages, onProgress, meta: { harness, run: runDir },
+  const { app, job } = await intake(opts, l.applications, async () => {
+    onProgress?.("parsing job…");
+    const { value } = await runAgentStep({
+      adapter,
+      name: harness,
+      workspace: createRunWorkspace(l.runs, "parse", runId),
+      instructions: await Bun.file(join(import.meta.dir, "prompts", "parse-job.md")).text(),
+      files: { "job.md": jobText, "parsed-job.schema.json": json(jsonSchemaFor("parsed-job")) },
+      outFile: "parsed-job.json",
+      validate: validateParsedJob,
+      timeoutMs,
+      onProgress,
     });
-  } catch (e) {
-    if (e instanceof UserError && e.message === "LaTeX compile failed") {
-      throw new UserError(e.message, `${e.hint} — content saved at ${join(writeWs, "out", "resume.json")}`);
-    }
-    throw e;
+    return value;
+  });
+  const warnings = isEnglish(job.language) ? [] : [`job description language is "${job.language}"; v1 is English-only`];
+  const profileText = profileTextOf(payload.entries, Object.values(payload.skills).flat());
+
+  if (opts.pause) {
+    const likelyGaps = keywordCoverage([...job.requirements, ...job.keywords], "", profileText).absent;
+    if (!(await opts.pause(job, likelyGaps))) throw new UserError("Aborted");
   }
-  onProgress?.(`done: ${v.pdfPath}`);
-  if (opts.open !== false) await openFile(v.pdfPath);
-  return { app, pdfPath: v.pdfPath, pages: v.pages, version: v.version, gaps: content.gaps, warnings: [...warnings, ...writeWarnings.map((w) => `fabrication: ${w}`), ...v.warnings] };
+
+  // Research only feeds the cover letter.
+  let research = null;
+  let researchStatus: "used" | "skipped" | "failed" = "skipped";
+  if (wantCover && opts.research !== false) {
+    const r = await runResearch({
+      adapter: resolveAdapter(harness, config, { research: true }),
+      name: harness, runsDir: l.runs, runId, appDir: app.dir, job, jobText, timeoutMs, onProgress,
+    });
+    research = r.research;
+    researchStatus = research ? "used" : r.warning?.startsWith("research failed") ? "failed" : "skipped";
+    if (r.warning) warnings.push(r.warning);
+  }
+
+  const tag = (t: string) => (m: string) => onProgress?.(`[${t}] ${m}`);
+  const ctx = (t: string): DocContext => ({
+    adapter, name: harness, timeoutMs, profile, payload, job, jobText, template, mode, profileText,
+    appJob: { company: app.meta.company, role: app.meta.role }, onProgress: tag(t),
+  });
+  const loop = <T>(kind: DocumentKind, doc: Doc<T>) =>
+    refine<T>({
+      kind, runsDir: l.runs, runId, adapter, name: harness, timeoutMs, ...doc,
+      maxRounds: opts.review === false ? 0 : config.max_review_rounds,
+      reviewFiles: { "job.md": jobText }, onProgress: tag(TAG[kind]),
+    });
+  const coverLoop = async () => {
+    if (!template.supports.includes("cover-letter")) throw new UserError(`template ${template.id} has no cover-letter design`);
+    const banned = [...new Set([...DEFAULT_BANNED, ...config.banned_phrases])];
+    const doc = await coverDocument(ctx("cover"), { research, banned, voice: loadVoiceSamples(l.profile), date: formatLetterDate(new Date()) });
+    return loop("cover-letter", doc);
+  };
+  const [rs, cs] = await Promise.allSettled([
+    resumeDocument(ctx("resume"), { targetPages }).then((d) => loop("resume", d)),
+    wantCover ? coverLoop() : Promise.resolve(null),
+  ]);
+
+  const result: ApplyResult = { app, failures: [], gaps: [], inferred: [], warnings };
+  let atsHint: string | undefined;
+  const save = <T>(kind: DocumentKind, r: RefineResult<T>, files: Record<string, string>): DocResult => {
+    const facts = r.produced.facts;
+    const saved = saveVersion({
+      app, kind, about: profile.about, pdf: r.produced.pdf, filename: config.filename,
+      files: { ...files, ...(r.review ? { "review.json": json(r.review) } : {}), "checks.json": json({ ...facts, warnings: r.warnings }) },
+      meta: versionMeta({ mode, research: researchStatus, harness, run: runDir, template: template.id, facts, review: r.review, reviewedFinal: r.reviewedFinal, rounds: r.rounds }),
+    });
+    warnings.push(...[...r.warnings, ...notReadyReasons(facts).map((w) => `not ready: ${w}`)].map((w) => `[${TAG[kind]}] ${w}`));
+    if (facts.ats.status === "skipped" && facts.ats.hint) atsHint = facts.ats.hint;
+    return { pdfPath: saved.pdfPath, version: saved.version, pages: r.produced.pages, ready: isReady(facts), review: r.review };
+  };
+  if (rs.status === "fulfilled") {
+    const r = rs.value;
+    result.resume = save("resume", r, {
+      "resume.json": json(r.value),
+      "resume.tex": r.produced.tex,
+      "trace.json": json(resumeTrace(resolveResume(r.value, payload.entries))),
+      "entries.snapshot.json": json(snapshotOf(resumeEntryIds(r.value), payload.entries)),
+    });
+    result.gaps = r.value.gaps;
+    result.inferred = r.value.sections.flatMap((s) => s.items.flatMap((i) => i.bullets.filter((b) => b.basis === "inferred").map((b) => ({ text: b.text, entry_ids: b.entry_ids }))));
+  }
+  if (cs.status === "fulfilled" && cs.value) {
+    const r = cs.value;
+    result.cover = save("cover-letter", r, {
+      "cover-letter.json": json(r.value),
+      "cover-letter.tex": r.produced.tex,
+      "trace.json": json(coverTrace(r.value)),
+      "entries.snapshot.json": json(snapshotOf(coverEntryIds(r.value), payload.entries)),
+      "company.snapshot.json": json(citedFacts(r.value, research)),
+    });
+  }
+  if (atsHint) warnings.push(`ATS check skipped: ${atsHint}`);
+
+  const rejected = ([["resume", rs], ["cover-letter", cs]] as const).flatMap(([kind, s]) => (s.status === "rejected" ? [{ kind, error: s.reason as unknown }] : []));
+  const bug = rejected.find((f) => !(f.error instanceof UserError));
+  if (bug) throw bug.error;
+  if (!result.resume && !result.cover) throw rejected[0]!.error;
+  for (const { kind, error } of rejected) {
+    const e = error as UserError;
+    result.failures.push(e.hint ? { kind, message: e.message, hint: e.hint } : { kind, message: e.message });
+  }
+  if (opts.open !== false && result.resume) await openFile(result.resume.pdfPath);
+  return result;
 }
 
 export function pdfIn(dir: string): string {
   const f = readdirSync(dir).find((n) => n.endsWith(".pdf"));
   if (!f) throw new UserError(`No PDF in ${dir}`);
   return join(dir, f);
-}
-
-function pickVersion(app: Application, version?: number): { dir: string; version: number } {
-  if (version === undefined) {
-    const latest = latestVersion(app, "resume");
-    if (!latest) throw new UserError(`${app.slug} has no resume versions yet`, "Run: resumely apply");
-    return latest;
-  }
-  const dir = join(app.dir, "resume", `v${version}`);
-  if (!existsSync(dir)) throw new UserError(`${app.slug} has no resume v${version}`);
-  return { dir, version };
-}
-
-export async function renderApplication(opts: {
-  root: string;
-  query: string;
-  template: string;
-  version?: number;
-  open?: boolean;
-  onProgress?: (m: string) => void;
-}): Promise<{ app: Application; pdfPath: string; pages: number; version: number; warnings: string[] }> {
-  requireDataRoot(opts.root);
-  const l = layout(opts.root);
-  const config = loadConfig(opts.root);
-  const app = findApplication(l.applications, opts.query);
-  const src = pickVersion(app, opts.version);
-  const template = findTemplate(opts.template, [builtinTemplatesDir(), l.templates]);
-  const { about } = loadAbout(l.profile);
-  const content = readJsonFile(join(src.dir, "resume.json"), ResumeContent);
-  const snapshotPath = join(src.dir, "entries.snapshot.json");
-  if (!existsSync(snapshotPath)) throw new UserError(`Missing ${snapshotPath}`, "render needs the version's frozen entries snapshot");
-  const entries = readJsonFile(snapshotPath, EntrySnapshot);
-  const snapshot = readFileSync(snapshotPath, "utf8");
-  const old = existsSync(join(src.dir, "meta.json")) ? JSON.parse(readFileSync(join(src.dir, "meta.json"), "utf8")) : {};
-  const v = await produceVersion({
-    app, about, content, entries, snapshot, template, filename: config.filename,
-    targetPages: config.pages, onProgress: opts.onProgress,
-    meta: { harness: old.harness, run: old.run, rendered_from: src.version },
-  });
-  if (opts.open !== false) await openFile(v.pdfPath);
-  return { app, pdfPath: v.pdfPath, pages: v.pages, version: v.version, warnings: v.warnings };
 }
 
 export function formatApplicationList(apps: Application[]): string {
@@ -236,6 +241,6 @@ export function formatApplicationList(apps: Application[]): string {
   return rows.map((r) => r.map((c, i) => c.padEnd(w[i]!)).join("  ").trimEnd()).join("\n");
 }
 
-export function resolveOpenTarget(app: Application, version?: number): string {
-  return pdfIn(pickVersion(app, version).dir);
+export function resolveOpenTarget(app: Application, version?: number, kind: DocumentKind = "resume"): string {
+  return pdfIn(pickVersion(app, kind, version).dir);
 }

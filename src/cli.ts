@@ -75,6 +75,11 @@ program
     const root = dataRoot();
     const src = await resolveJobInput(input, { clip: o.clip });
     const r = await applyJob({ root, input: src, harness: o.harness, template: o.template, open: o.open, onProgress: progress });
+    for (const [label, d] of [["resume", r.resume], ["cover letter", r.cover]] as const) {
+      if (d) console.error(`done: ${label} v${d.version}${d.ready ? "" : " (not ready)"}: ${d.pdfPath}`);
+    }
+    for (const f of r.failures) console.error(`failed: ${f.kind}: ${f.message}${f.hint ? ` (${f.hint})` : ""}`);
+    if (r.failures.length) process.exitCode = 1;
     printWarnings(r.warnings);
     if (r.gaps.length) console.error(["gaps:", ...r.gaps.map((g) => `  - ${g.requirement}: ${g.note}`)].join("\n"));
   });
