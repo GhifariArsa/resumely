@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
@@ -120,9 +120,38 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
     expect(trace[1]).toMatchObject({ item: "Senior Software Engineer", text: "Rebuilt the billing dashboard with a team of 4." });
     expect(readFileSync(join(app.dir, "resume/v2/entries.snapshot.json"), "utf8")).toBe(readFileSync(join(app.dir, "resume/v1/entries.snapshot.json"), "utf8"));
   });
+
+  test("compile failure after a valid agent run names the saved content", async () => {
+    const tpl = join(layout(root).templates, "broken");
+    mkdirSync(tpl, { recursive: true });
+    writeFileSync(join(tpl, "template.toml"), 'id = "broken"\nengine = "pdflatex"\n');
+    writeFileSync(join(tpl, "resume.tex.njk"), "\\documentclass{article}\\begin{document}\\undefinedmacro\\end{document}\n");
+    script({ "0": parseOut, "1": writeOut(resume) });
+    const e = (await applyJob({ root, input: await readJobFile(join(fx, "jobs/backend.md")), template: "broken", open: false }).catch((x) => x)) as UserError;
+    expect(e).toBeInstanceOf(UserError);
+    expect(e.message).toBe("LaTeX compile failed");
+    expect(e.hint).toMatch(/^! Undefined control sequence\. — content saved at .*\/\.runs\/[^/]+\/write\/out\/resume\.json$/);
+    expect(existsSync(e.hint!.split("content saved at ")[1]!)).toBe(true);
+  });
 });
 
-test("unknown entry id on all write attempts: app exists, no version", async () => {
+test("missing latexmk fails before any agent call", async () => {
+  script({ "0": parseOut, "1": writeOut(resume) });
+  const saved = process.env.PATH;
+  process.env.PATH = "/nonexistent";
+  let e: UserError | undefined;
+  try {
+    e = await run().catch((x) => x);
+  } finally {
+    process.env.PATH = saved;
+  }
+  expect(e).toBeInstanceOf(UserError);
+  expect(e!.message).toBe("latexmk not found");
+  expect(e!.hint).toBe("Install TeX Live (macOS: brew install --cask mactex-no-gui)");
+  expect(existsSync(join(root, "script.json.count"))).toBe(false);
+});
+
+test.skipIf(!hasLatex)("unknown entry id on all write attempts: app exists, no version", async () => {
   script({ "0": parseOut, "1": writeOut(badResume), "2": writeOut(badResume), "3": writeOut(badResume) });
   let err: unknown;
   await run().catch((e) => (err = e));
@@ -133,7 +162,7 @@ test("unknown entry id on all write attempts: app exists, no version", async () 
   expect(existsSync(join(apps[0]!.dir, "resume"))).toBe(false);
 });
 
-test("invalid parse on all attempts: no application dir", async () => {
+test.skipIf(!hasLatex)("invalid parse on all attempts: no application dir", async () => {
   script({ "0": { "out/parsed-job.json": "INVALID" }, "1": { "out/parsed-job.json": "INVALID" }, "2": { "out/parsed-job.json": "INVALID" } });
   await expect(run()).rejects.toThrow("after 3 attempts");
   expect(listApplications(layout(root).applications)).toEqual([]);

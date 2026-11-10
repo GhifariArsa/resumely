@@ -24,7 +24,7 @@ export async function compileTex(
       });
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-        throw new UserError("latexmk not found", "Install a TeX distribution (e.g. TeX Live or MacTeX) that provides latexmk");
+        throw new UserError("latexmk not found", "Install TeX Live (macOS: brew install --cask mactex-no-gui)");
       }
       throw e;
     }

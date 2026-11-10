@@ -2,7 +2,7 @@ import { test, expect, describe } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { latexEscape, latexUrl } from "../src/render/latex-escape";
+import { latexEscape, latexUrl, unsupportedChars } from "../src/render/latex-escape";
 import { renderResume, findTemplate, listTemplates, builtinTemplatesDir } from "../src/render/render";
 import { loadProfile } from "../src/profile/load";
 import { ResumeContent } from "../src/pipeline/schemas";
@@ -23,8 +23,20 @@ describe("latexEscape", () => {
     ["R&D at 100% for $5M", "R\\&D at 100\\% for \\$5M"],
     ["Zoë", "Zoë"],
     ["a\\&b", "a\\textbackslash{}\\&b"],
+
+    ["→", "\\textrightarrow{}"], ["←", "\\textleftarrow{}"], ["≈", "$\\approx$"], ["≥", "$\\geq$"], ["≤", "$\\leq$"],
+    ["×", "$\\times$"], ["✓", "\\checkmark{}"], ["✔", "\\checkmark{}"], ["•", "\\textbullet{}"], ["…", "\\ldots{}"],
+    ["™", "\\texttrademark{}"], ["®", "\\textregistered{}"], ["©", "\\textcopyright{}"], ["€", "\\texteuro{}"], ["a\u00a0b", "a~b"],
+    ["2× faster → 50%", "2$\\times$ faster \\textrightarrow{} 50\\%"],
   ];
   for (const [i, o] of table) test(JSON.stringify(i), () => expect(latexEscape(i)).toBe(o));
+});
+
+test("unsupportedChars", () => {
+  expect(unsupportedChars("plain ASCII, Zoë, Łódź, Ħamrun – “quoted” ′ ≈ → €")).toEqual([]);
+  expect(unsupportedChars("ship it 🚀🚀 ☃")).toEqual(["🚀", "☃"]);
+  expect(unsupportedChars("bell\u0007")).toEqual(["\u0007"]);
+  expect(unsupportedChars("tab\tnew\nline")).toEqual([]);
 });
 
 test("latexUrl escapes % and # only", () => {

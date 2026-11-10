@@ -117,3 +117,20 @@ test("empty section items rejected", () => {
   c.sections[2].items = [];
   expect(errs(validateResume(c, profile, "truthful")).some((e) => e.startsWith("sections[2].items: "))).toBe(true);
 });
+
+test("unsupported characters are rejected with code point; mapped symbols pass", () => {
+  const c = fixture();
+  c.sections[0].items[0].bullets[0].text = "Cut latency ≈ 60% → shipped 🚀";
+  c.summary.text = "Engineer ☃";
+  c.skills[0].category = "Langs ✨";
+  c.sections[1].title = "Projects – Selected";
+  const e = errs(validateResume(c, profile, "truthful"));
+  expect(e).toEqual([
+    'summary: unsupported character "☃" (U+2603)',
+    'sections[0].items[0].bullets[0]: unsupported character "🚀" (U+1F600)'.replace("1F600", "1F680"),
+    'skills[0].category: unsupported character "✨" (U+2728)',
+  ]);
+  const d = fixture();
+  d.sections[0].items[0].bullets[0].text = "Grew revenue ≈ 2× — “fast” • Zoë’s team…";
+  expect(validateResume(d, profile, "truthful").ok).toBe(true);
+});

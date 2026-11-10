@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import type { EntryType, Profile } from "../profile/schema";
+import { unsupportedChars } from "../render/latex-escape";
 import { ParsedJob, ResumeContent } from "./schemas";
 
 export type ValidationResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
@@ -52,9 +53,19 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful")
   const checkIds = (where: string, ids: string[]) => {
     for (const id of ids) if (!known.has(id)) errors.push(`${where}: unknown entry id "${id}"`);
   };
+  /** Reject text the template can't typeset, so it goes back to the agent instead of failing the compile. */
+  const checkChars = (where: string, text: string) => {
+    for (const c of unsupportedChars(text)) {
+      errors.push(`${where}: unsupported character "${c}" (U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")})`);
+    }
+  };
 
-  if (value.summary) checkIds("summary", value.summary.entry_ids);
+  if (value.summary) {
+    checkIds("summary", value.summary.entry_ids);
+    checkChars("summary", value.summary.text);
+  }
   value.sections.forEach((s, i) => {
+    checkChars(`sections[${i}].title`, s.title);
     s.items.forEach((item, j) => {
       const at = `sections[${i}].items[${j}]`;
       checkIds(at, [item.entry_id]);
@@ -65,6 +76,7 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful")
       item.bullets.forEach((b, k) => {
         const bat = `${at}.bullets[${k}]`;
         checkIds(bat, b.entry_ids);
+        checkChars(bat, b.text);
         if (!b.entry_ids.includes(item.entry_id)) errors.push(`${bat}: bullet must cite its item's entry "${item.entry_id}"`);
         if (mode === "truthful" && b.basis === "inferred") errors.push(`${bat}: inferred claims are not allowed in truthful mode`);
       });
@@ -72,7 +84,9 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful")
   });
   const skills = profileSkills(profile);
   value.skills.forEach((group, i) => {
+    checkChars(`skills[${i}].category`, group.category);
     group.items.forEach((v, j) => {
+      checkChars(`skills[${i}].items[${j}]`, v);
       if (!skills.has(normaliseSkill(v))) errors.push(`skills[${i}].items[${j}]: "${v}" is not in your profile`);
     });
   });

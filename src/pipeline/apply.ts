@@ -96,6 +96,9 @@ export async function applyJob(opts: {
   const l = layout(root);
   const config = loadConfig(root);
   const profile = loadProfile(l.profile);
+  if (!Bun.which("latexmk", { PATH: process.env.PATH ?? "" })) {
+    throw new UserError("latexmk not found", "Install TeX Live (macOS: brew install --cask mactex-no-gui)");
+  }
   const harness = opts.harness ?? config.harness;
   const adapter = resolveAdapter(harness, config);
   const template = findTemplate(opts.template ?? config.template, [builtinTemplatesDir(), l.templates]);
@@ -119,10 +122,11 @@ export async function applyJob(opts: {
   const app = createApplication(l.applications, job, opts.input);
 
   onProgress?.(`writing resume (${harness})…`);
+  const writeWs = createRunWorkspace(l.runs, "write", runId);
   const content = await runAgentStep({
     adapter,
     name: harness,
-    workspace: createRunWorkspace(l.runs, "write", runId),
+    workspace: writeWs,
     instructions: (await prompt("write-resume.md")).replaceAll("{{pages}}", String(config.pages)),
     files: {
       "profile.json": json(payload),
@@ -136,10 +140,18 @@ export async function applyJob(opts: {
     onProgress,
   });
 
-  const v = await produceVersion({
-    app, about: profile.about, content, entries: payload.entries, template, filename: config.filename, timeoutMs,
-    targetPages: config.pages, onProgress, meta: { harness, run: runDir },
-  });
+  let v;
+  try {
+    v = await produceVersion({
+      app, about: profile.about, content, entries: payload.entries, template, filename: config.filename, timeoutMs,
+      targetPages: config.pages, onProgress, meta: { harness, run: runDir },
+    });
+  } catch (e) {
+    if (e instanceof UserError && e.message === "LaTeX compile failed") {
+      throw new UserError(e.message, `${e.hint} — content saved at ${join(writeWs, "out", "resume.json")}`);
+    }
+    throw e;
+  }
   onProgress?.(`done: ${v.pdfPath}`);
   if (opts.open !== false) await openFile(v.pdfPath);
   return { app, pdfPath: v.pdfPath, pages: v.pages, version: v.version, gaps: content.gaps, warnings: v.warnings };

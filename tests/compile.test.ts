@@ -64,3 +64,13 @@ test.skipIf(skip)("hostile text is escaped and compiles", async () => {
   const r = await compileTex(tex, t.engine);
   expect(r.pages).toBeGreaterThanOrEqual(1);
 }, 150000);
+
+test.skipIf(skip)("every character validation accepts compiles under the classic template", async () => {
+  const c = structuredClone(resume);
+  let latin = "";
+  for (let cp = 0xa0; cp <= 0x17f; cp++) latin += String.fromCodePoint(cp);
+  c.sections[0]!.items[0]!.bullets[0]!.text = latin;
+  c.sections[0]!.items[0]!.bullets[1]!.text = "≈ → ← ≥ ≤ × ✓ ✔ • … ™ ® © € a\u00a0b – — ‘ ’ “ ” ′";
+  const r = await compileTex(renderResume(t, { about, resume: c }), t.engine);
+  expect(r.pages).toBeGreaterThanOrEqual(1);
+}, 150000);
