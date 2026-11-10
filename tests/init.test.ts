@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -17,4 +17,16 @@ test("init creates layout and refuses twice", () => {
   const m = readFileSync(join(d, "profile/about.md"), "utf8").match(/^---\n([\s\S]*?)\n---/);
   expect(parseYaml(m![1]!)).toEqual({ name: "Your Name", email: "you@example.com", links: [] });
   expect(() => initDataRoot(d)).toThrow(UserError);
+});
+
+test("re-init after removing config.toml keeps existing about.md and skills.yaml", () => {
+  const d = join(mkdtempSync(join(tmpdir(), "resumely-")), "r");
+  initDataRoot(d);
+  writeFileSync(join(d, "profile/about.md"), "---\nname: Real Person\nemail: r@example.com\n---\nmine\n");
+  writeFileSync(join(d, "profile/skills.yaml"), "Languages: [Go]\n");
+  rmSync(join(d, "config.toml"));
+  initDataRoot(d);
+  expect(readFileSync(join(d, "profile/about.md"), "utf8")).toContain("Real Person");
+  expect(readFileSync(join(d, "profile/skills.yaml"), "utf8")).toBe("Languages: [Go]\n");
+  expect(existsSync(join(d, "config.toml"))).toBe(true);
 });

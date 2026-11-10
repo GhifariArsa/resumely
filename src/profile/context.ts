@@ -1,13 +1,16 @@
 import type { Entry, Profile } from "./schema";
 
-/** Remove `## Private` sections (to next `## ` heading or EOF). Counts non-blank lines withheld. */
+/**
+ * Remove `## Private…` sections (`## Private`, `## Private:`, `## Private notes`) up to the next `## `
+ * heading or EOF. Counts non-blank lines withheld.
+ */
 export function stripPrivate(body: string): { body: string; privateLines: number } {
   const lines = body.split(/\r?\n/);
   const out: string[] = [];
   let inPrivate = false;
   let privateLines = 0;
   for (const line of lines) {
-    if (/^##\s+Private\s*$/i.test(line)) {
+    if (/^##\s+Private\b.*$/i.test(line)) {
       inPrivate = true;
       continue;
     }
@@ -35,9 +38,24 @@ export function buildAgentPayload(p: Profile): AgentPayload {
   };
 }
 
+/** Headings that mention "private" but survived stripping (e.g. `### Private`), so they reach the agent. */
+export function privateHeadingWarnings(p: Profile): string[] {
+  const sources = [{ id: "about.md", body: p.about.body }, ...p.entries];
+  const out: string[] = [];
+  for (const { id, body } of sources) {
+    for (const line of body.split(/\r?\n/)) {
+      if (/^#{1,6}\s/.test(line) && /private/i.test(line)) {
+        out.push(`${id}: heading "${line.trim()}" is not withheld (only "## Private" sections are)`);
+      }
+    }
+  }
+  return out;
+}
+
 export function formatProfileContext(p: Profile): string {
   let out = JSON.stringify(buildAgentPayload(p), null, 2);
   const notes = p.entries.filter((e) => e.privateLines > 0).map((e) => `// ${e.id}: [private: ${e.privateLines} lines withheld]`);
+  notes.push(...privateHeadingWarnings(p).map((w) => `// warning: ${w}`));
   if (notes.length) out += "\n" + notes.join("\n");
   return out;
 }
@@ -59,6 +77,8 @@ export function formatProfileTree(p: Profile): string {
   const cats = Object.keys(p.skills);
   if (cats.length) lines.push("", `skills: ${cats.join(", ")}`);
   if (p.entries.length === 0) lines.push("", "(no entries yet)");
+  const warnings = privateHeadingWarnings(p);
+  if (warnings.length) lines.push("", ...warnings.map((w) => `warning: ${w}`));
   return lines.join("\n");
 }
 

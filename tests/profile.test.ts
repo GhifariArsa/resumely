@@ -109,3 +109,20 @@ test("loadProfile parses the starter profile from init", () => {
   expect(p.about.name).toBe("Your Name");
   expect(p.skills).toEqual({ Languages: [], Tools: [] });
 });
+
+test("near-miss private headings are withheld", () => {
+  expect(stripPrivate("a\n## Private:\nx\n## Notes\ny")).toEqual({ body: "a\n## Notes\ny", privateLines: 1 });
+  expect(stripPrivate("a\n## Private notes\nsecret\nmore\n")).toEqual({ body: "a", privateLines: 2 });
+  expect(stripPrivate("a\n## privateer\nkept")).toEqual({ body: "a\n## privateer\nkept", privateLines: 0 });
+});
+
+test("unstripped headings mentioning private are warned about", () => {
+  const d = copyFixture();
+  writeFileSync(join(d, "projects/sub.md"), "---\nid: proj-sub\ntype: project\ntitle: Sub\n---\n## Notes\n### Private\nnot withheld\n");
+  const p = loadProfile(d);
+  const ctx = formatProfileContext(p);
+  expect(ctx).toContain('// warning: proj-sub: heading "### Private" is not withheld (only "## Private" sections are)');
+  expect(ctx).toContain("not withheld");
+  expect(formatProfileTree(p)).toContain('warning: proj-sub: heading "### Private" is not withheld (only "## Private" sections are)');
+  expect(formatProfileContext(loadProfile(FIXTURE))).not.toContain("warning:");
+});

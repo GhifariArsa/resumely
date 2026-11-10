@@ -55,7 +55,11 @@ Was told the team will be laid off in Q3.
 Compensation: 145000 CAD plus equity.
 ```
 
-The `## Private` section (and `private:` keys in `about.md` front matter) is **withheld from the agent**: it is stripped before the agent's workspace is built, so it never reaches the harness or the resume. Use it for context you want to keep next to the entry but not share. Other sections, such as `## Notes`, are visible to the agent.
+A `## Private` section (also `## Private:` or `## Private notes`, up to the next `## ` heading) and `private:` keys in `about.md` front matter are **never included in what resumely sends to the agent**: they are stripped before the agent's workspace files are written, so they don't reach the prompt or the resume. Use them for context you want to keep next to the entry but not share. Other sections, such as `## Notes`, are visible to the agent; `resumely profile context` warns about other headings that mention "private" (such as `### Private`) but are not withheld.
+
+### Agent access
+
+The agent runs with file tools in a workspace inside your data root (`~/resumely/.runs/<run>/`, kept as a debug trail), so it could read other files there, including your raw profile. How far it can reach depends on the harness: `claude` is limited to the tools in `--allowedTools`, `codex` runs in its `workspace-write` sandbox, and `pi` has no sandbox. Job postings are untrusted input; treat job URLs from unknown sources with care.
 
 ### Debugging what the agent sees
 

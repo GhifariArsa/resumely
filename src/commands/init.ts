@@ -40,6 +40,15 @@ Languages: []
 Tools: []
 `;
 
+/** Write a starter file unless one already exists (re-init must never clobber profile data). */
+function writeIfAbsent(path: string, content: string): void {
+  try {
+    writeFileSync(path, content, { flag: "wx" });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+  }
+}
+
 export function initDataRoot(root: string): void {
   const l = layout(root);
   if (existsSync(l.config)) {
@@ -49,7 +58,7 @@ export function initDataRoot(root: string): void {
     mkdirSync(join(l.profile, sub), { recursive: true });
   }
   for (const d of [l.applications, l.templates, l.runs]) mkdirSync(d, { recursive: true });
-  writeFileSync(join(l.profile, "about.md"), ABOUT_MD);
-  writeFileSync(join(l.profile, "skills.yaml"), SKILLS_YAML);
+  writeIfAbsent(join(l.profile, "about.md"), ABOUT_MD);
+  writeIfAbsent(join(l.profile, "skills.yaml"), SKILLS_YAML);
   writeFileSync(l.config, CONFIG_TOML);
 }
