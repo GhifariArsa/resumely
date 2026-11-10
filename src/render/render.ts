@@ -5,7 +5,7 @@ import { parse as parseToml } from "smol-toml";
 import { UserError } from "../errors";
 import type { About } from "../profile/schema";
 import type { ResolvedResume } from "../pipeline/resolve";
-import { escapeDeep, latexUrl } from "./latex-escape";
+import { escapeDeep, latexUrl, unsupportedChars } from "./latex-escape";
 
 export type TemplateMeta = {
   id: string;
@@ -66,9 +66,17 @@ export function findTemplate(id: string, dirs: string[]): TemplateMeta {
   return found;
 }
 
-export type ResumeRenderData = { about: About; resume: ResolvedResume };
+/** `job` feeds PDF metadata (subject); company/role come from the application, not the agent's resume. */
+export type ResumeRenderData = { about: About; resume: ResolvedResume; job?: { company: string; role: string } };
 
-export function renderResume(t: TemplateMeta, data: ResumeRenderData): string {
+/** Drop characters pdfLaTeX can't set: job metadata is agent-parsed and not validated for the renderer. */
+function settable(s: string): string {
+  const bad = new Set(unsupportedChars(s));
+  return bad.size ? [...s].filter((c) => !bad.has(c)).join("") : s;
+}
+
+export function renderResume(t: TemplateMeta, input: ResumeRenderData): string {
+  const data = input.job ? { ...input, job: { company: settable(input.job.company), role: settable(input.job.role) } } : input;
   const env = new nunjucks.Environment(new nunjucks.FileSystemLoader(t.dir), {
     autoescape: false,
     tags: {

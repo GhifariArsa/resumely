@@ -75,6 +75,11 @@ describe("renderResume", () => {
     const a = { ...about, links: [{ label: "Me", url: "https://x.com/a%20b#f" }] };
     expect(renderResume(t, { about: a, resume })).toContain("\\href{https://x.com/a\\%20b\\#f}");
   });
+  test("PDF metadata is escaped and drops characters pdfLaTeX can't set", () => {
+    const out = renderResume(t, { about, resume, job: { company: "R&D Labs ☃", role: "Dev_Ops" } });
+    expect(out).toContain("\\hypersetup{pdfauthor={Jordan Example}, pdftitle={Jordan Example — Resume}, pdfsubject={Dev\\_Ops at R\\&D Labs }}");
+    expect(renderResume(t, { about, resume })).toContain("\\hypersetup{pdfauthor={Jordan Example}, pdftitle={Jordan Example — Resume}}");
+  });
   test("omits summary when absent", () => {
     const { summary: _s, ...rest } = resume;
     expect(renderResume(t, { about, resume: rest as ResolvedResume })).not.toContain("Backend-leaning");

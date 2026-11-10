@@ -47,3 +47,11 @@ test("missing config -> UserError with init hint", () => {
   const e = expectUserError(() => loadConfig(d));
   expect(e.hint).toBe("Run: resumely init");
 });
+
+test("adapter model is optional and parsed", () => {
+  const d = mkdtempSync(join(tmpdir(), "resumely-"));
+  writeFileSync(join(d, "config.toml"), '[adapters.mine]\ncommand = ["my-agent", "--model", "{model}"]\nmodel = "fast"\n[adapters.other]\ncommand = ["o"]\n');
+  const c = loadConfig(d);
+  expect(c.adapters.mine!.model).toBe("fast");
+  expect(c.adapters.other!.model).toBeUndefined();
+});

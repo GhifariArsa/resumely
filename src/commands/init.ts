@@ -22,8 +22,9 @@ const CONFIG_TOML = `# resumely config. Uncomment and edit to override defaults.
 
 # Custom adapters (commands are argv arrays, never shell strings):
 # [adapters.mine]
-# command = ["my-agent", "--prompt-file", "{prompt}"]
+# command = ["my-agent", "--model", "{model}", "--prompt-file", "{prompt}"]
 # check = ["my-agent", "--version"]
+# model = "my-model"   # optional; without it "--model", "{model}" is dropped
 `;
 
 const ABOUT_MD = `---

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import type { ZodType } from "zod";
 import { createApplication, findApplication, latestVersion, nextVersionDir, sendReadyName } from "../application/store";
 import type { Application } from "../application/store";
 import { openFile } from "../commands/open";
@@ -16,7 +17,7 @@ import { builtinTemplatesDir, findTemplate, renderResume } from "../render/rende
 import type { TemplateMeta } from "../render/render";
 import { EntrySnapshot, resolveResume, type EntryLike, type ResolvedResume } from "./resolve";
 import { jsonSchemaFor, ResumeContent } from "./schemas";
-import { validateParsedJob, validateResume } from "./validate";
+import { schemaErrors, validateParsedJob, validateResume } from "./validate";
 import { createRunWorkspace, newRunId, runAgentStep } from "./workspace";
 
 export type ApplyResult = {
@@ -66,7 +67,7 @@ async function produceVersion(o: {
 }): Promise<{ dir: string; version: number; pdfPath: string; pages: number; warnings: string[] }> {
   o.onProgress?.("compiling…");
   const resume = resolveResume(o.content, o.entries);
-  const tex = renderResume(o.template, { about: o.about, resume });
+  const tex = renderResume(o.template, { about: o.about, resume, job: { company: o.app.meta.company, role: o.app.meta.role } });
   const { pdf, pages } = await compileTex(tex, o.template.engine, { timeoutMs: o.timeoutMs });
   const { dir, version } = nextVersionDir(o.app, "resume");
   const pdfName = sendReadyName(o.filename, o.about, "Resume", o.app.meta.company);
@@ -83,6 +84,23 @@ async function produceVersion(o: {
   return { dir, version, pdfPath: join(dir, pdfName), pages, warnings };
 }
 
+/** ISO 639-1 "en" (also "en-US" etc.), or the word itself in case the agent spells it out. */
+const isEnglish = (lang: string) => /^(en([-_].*)?|english)$/i.test(lang.trim());
+
+/** Read and schema-check a JSON file the user may have edited by hand. */
+function readJsonFile<T>(path: string, schema: ZodType<T>): T {
+  const name = basename(path);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    throw new UserError(`Invalid ${name} at ${path}`, (e as Error).message);
+  }
+  const r = schema.safeParse(raw);
+  if (!r.success) throw new UserError(`Invalid ${name} at ${path}`, schemaErrors(r.error.issues).join("; "));
+  return r.data;
+}
+
 export async function applyJob(opts: {
   root: string;
   input: JobSource;
@@ -96,6 +114,9 @@ export async function applyJob(opts: {
   const l = layout(root);
   const config = loadConfig(root);
   const profile = loadProfile(l.profile);
+  if (profile.entries.length === 0 || profile.about.name === "Your Name") {
+    throw new UserError("Your profile is empty", `Add entries under ${l.profile} (see README) — check with: resumely profile show`);
+  }
   if (!Bun.which("latexmk", { PATH: process.env.PATH ?? "" })) {
     throw new UserError("latexmk not found", "Install TeX Live (macOS: brew install --cask mactex-no-gui)");
   }
@@ -120,6 +141,7 @@ export async function applyJob(opts: {
     onProgress,
   });
   const app = createApplication(l.applications, job, opts.input);
+  const warnings = isEnglish(job.language) ? [] : [`job description language is "${job.language}"; v1 is English-only`];
 
   onProgress?.(`writing resume (${harness})…`);
   const writeWs = createRunWorkspace(l.runs, "write", runId);
@@ -154,7 +176,7 @@ export async function applyJob(opts: {
   }
   onProgress?.(`done: ${v.pdfPath}`);
   if (opts.open !== false) await openFile(v.pdfPath);
-  return { app, pdfPath: v.pdfPath, pages: v.pages, version: v.version, gaps: content.gaps, warnings: v.warnings };
+  return { app, pdfPath: v.pdfPath, pages: v.pages, version: v.version, gaps: content.gaps, warnings: [...warnings, ...v.warnings] };
 }
 
 export function pdfIn(dir: string): string {
@@ -189,11 +211,11 @@ export async function renderApplication(opts: {
   const src = pickVersion(app, opts.version);
   const template = findTemplate(opts.template, [builtinTemplatesDir(), l.templates]);
   const { about } = loadAbout(l.profile);
-  const content = ResumeContent.parse(JSON.parse(readFileSync(join(src.dir, "resume.json"), "utf8")));
+  const content = readJsonFile(join(src.dir, "resume.json"), ResumeContent);
   const snapshotPath = join(src.dir, "entries.snapshot.json");
   if (!existsSync(snapshotPath)) throw new UserError(`Missing ${snapshotPath}`, "render needs the version's frozen entries snapshot");
+  const entries = readJsonFile(snapshotPath, EntrySnapshot);
   const snapshot = readFileSync(snapshotPath, "utf8");
-  const entries = EntrySnapshot.parse(JSON.parse(snapshot));
   const old = existsSync(join(src.dir, "meta.json")) ? JSON.parse(readFileSync(join(src.dir, "meta.json"), "utf8")) : {};
   const v = await produceVersion({
     app, about, content, entries, snapshot, template, filename: config.filename, timeoutMs: config.timeout_minutes * 60_000,

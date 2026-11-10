@@ -28,10 +28,21 @@ export function resolveAdapter(name: string, cfg: Config): AdapterConfig {
   throw new UserError(`Unknown harness "${name}"`, `Known harnesses: ${known}`);
 }
 
-/** Substitute {prompt}/{workspace}/{model} in each argv element (single pass, no shell). */
+/**
+ * Substitute {prompt}/{workspace}/{model} in each argv element (single pass, no shell). With no model,
+ * an element that is exactly "{model}" is dropped along with the flag before it (`--model {model}` vanishes).
+ */
 export function expandCommand(a: AdapterConfig, vars: { prompt: string; workspace: string; model?: string }): string[] {
   const map: Record<string, string> = { prompt: vars.prompt, workspace: vars.workspace, model: vars.model ?? "" };
-  return a.command.map((arg) => arg.replace(/\{(prompt|workspace|model)\}/g, (_, k: string) => map[k]!));
+  const out: string[] = [];
+  for (const arg of a.command) {
+    if (arg === "{model}" && !vars.model) {
+      if (out.length > 1 && out.at(-1)!.startsWith("-")) out.pop();
+      continue;
+    }
+    out.push(arg.replace(/\{(prompt|workspace|model)\}/g, (_, k: string) => map[k]!));
+  }
+  return out;
 }
 
 export type HarnessErrorKind = "not_installed" | "auth" | "rate_limit" | "timeout" | "unknown";
@@ -82,7 +93,7 @@ export async function runHarness(
   /** `logSuffix` distinguishes attempts: "" → stdout.log, ".2" → stdout.2.log. */
   opts: { workspace: string; prompt: string; timeoutMs: number; model?: string; name: string; logSuffix?: string },
 ): Promise<{ stdout: string; stderr: string; durationMs: number }> {
-  const argv = expandCommand(a, opts);
+  const argv = expandCommand(a, { ...opts, model: opts.model ?? a.model });
   const bin = a.command[0] ?? "";
   const fail = (kind: HarnessErrorKind, out: { stdout: string; stderr: string }): never => {
     throw new HarnessError(`${opts.name} failed (${kind})`, hintFor(kind, opts.name, bin, out), kind);

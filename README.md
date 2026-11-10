@@ -1,6 +1,6 @@
 # resumely
 
-Tailor your resume to a job posting using the coding agent you already have. You keep a profile of markdown files describing your experience. `resumely apply` parses a job description, then drives a headless coding-agent CLI (claude, codex or pi) to select and reword real entries from your profile into a one-page resume, compiled to PDF with LaTeX. Every bullet is traced back to the profile entries it came from, and requirements your profile doesn't cover are listed as gaps instead of being invented.
+Tailor your resume to a job posting using the coding agent you already have. You keep a profile of markdown files describing your experience. `resumely apply` parses a job description, then drives a headless coding-agent CLI (claude, codex or pi) to select and reword real entries from your profile into a one-page resume, compiled to PDF with LaTeX. Every bullet is traced back to the profile entries it came from, titles, employers, locations and dates are filled in from your entries rather than written by the agent, skills must exist in your profile, and requirements your profile doesn't cover are listed as gaps instead of being invented.
 
 ## Prerequisites
 
@@ -71,7 +71,15 @@ Prints the exact profile content that is handed to the agent, with private conte
 
 ## Adapters
 
-Built-in presets exist for `claude`, `codex` and `pi`. Choose one with `harness = "..."` in `~/resumely/config.toml` or `--harness`. Override a preset or add your own; commands are argv arrays (no shell), with `{prompt}`, `{workspace}` and `{model}` substituted:
+Built-in presets exist for `claude`, `codex` and `pi`. Choose one with `harness = "..."` in `~/resumely/config.toml` or `--harness`. Override a preset or add your own; commands are argv arrays (no shell), with `{prompt}`, `{workspace}` and `{model}` substituted. `{model}` takes the adapter's optional `model` key; when no model is set, an argv element that is exactly `"{model}"` is dropped together with the flag just before it, so `"--model", "{model}"` simply disappears. The presets don't pass a model, so to pick one, override the adapter:
+
+```toml
+[adapters.claude]
+command = ["claude", "-p", "{prompt}", "--model", "{model}", "--permission-mode", "acceptEdits", "--allowedTools", "Read Write Edit Glob"]
+model = "sonnet"
+```
+
+Using pi with a specific provider:
 
 ```toml
 harness = "pi"

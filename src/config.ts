@@ -7,6 +7,8 @@ import { UserError } from "./errors";
 const AdapterConfig = z.object({
   command: z.array(z.string()),
   check: z.array(z.string()).optional(),
+  /** Substituted for `{model}`; when unset, a bare `{model}` element (and its preceding flag) is dropped. */
+  model: z.string().optional(),
 });
 
 const ConfigSchema = z.object({

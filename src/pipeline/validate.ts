@@ -14,7 +14,7 @@ function formatPath(path: PropertyKey[]): string {
   return out;
 }
 
-function schemaErrors(issues: z.core.$ZodIssue[]): string[] {
+export function schemaErrors(issues: z.core.$ZodIssue[]): string[] {
   return issues.map((i) => {
     const p = formatPath(i.path);
     return p ? `${p}: ${i.message}` : i.message;

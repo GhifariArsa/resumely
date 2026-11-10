@@ -18,8 +18,14 @@ describe("expandCommand", () => {
     );
     expect(out).toEqual(["x", "hello world", "--ws=/w", "-m", "m1", "pre hello world post"]);
   });
-  test("missing model becomes empty string", () => {
-    expect(expandCommand({ command: ["x", "{model}"] }, { prompt: "p", workspace: "/w" })).toEqual(["x", ""]);
+  test("no model: a bare {model} argv element is dropped with its preceding flag", () => {
+    const vars = { prompt: "p", workspace: "/w" };
+    expect(expandCommand({ command: ["x", "--model", "{model}", "{prompt}"] }, vars)).toEqual(["x", "p"]);
+    expect(expandCommand({ command: ["x", "-m", "{model}"] }, vars)).toEqual(["x"]);
+    expect(expandCommand({ command: ["x", "pos", "{model}"] }, vars)).toEqual(["x", "pos"]);
+    expect(expandCommand({ command: ["x", "{model}"] }, vars)).toEqual(["x"]);
+    expect(expandCommand({ command: ["x", "--model={model}"] }, vars)).toEqual(["x", "--model="]);
+    expect(expandCommand({ command: ["x", "--model", "{model}"] }, { ...vars, model: "m1" })).toEqual(["x", "--model", "m1"]);
   });
   test("prompt containing placeholder-like text is not re-expanded", () => {
     expect(expandCommand({ command: ["{prompt}", "{workspace}"] }, { prompt: "{workspace}", workspace: "/w" })).toEqual(["{workspace}", "/w"]);
@@ -160,6 +166,14 @@ describe("runHarness", () => {
     expect(readFileSync(join(ws, "stdout.2.log"), "utf8")).toBe("hi\n");
     expect(readFileSync(join(ws, "stderr.2.log"), "utf8")).toBe("there\n");
     expect(existsSync(join(ws, "stdout.log"))).toBe(false);
+  });
+
+  test("adapter model from config is substituted", async () => {
+    const ws = tmp();
+    await runHarness({ command: ["sh", "-c", 'printf %s "$*" > args.txt', "sh", "--model", "{model}", "{prompt}"], model: "m1" }, base(ws));
+    expect(readFileSync(join(ws, "args.txt"), "utf8")).toBe("--model m1 p");
+    await runHarness({ command: ["sh", "-c", 'printf %s "$*" > args.txt', "sh", "--model", "{model}", "{prompt}"] }, base(ws));
+    expect(readFileSync(join(ws, "args.txt"), "utf8")).toBe("p");
   });
 
   test("auth hint uses name", async () => {

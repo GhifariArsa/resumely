@@ -135,6 +135,38 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
     expect(readFileSync(join(app.dir, "resume/v2/entries.snapshot.json"), "utf8")).toBe(readFileSync(join(app.dir, "resume/v1/entries.snapshot.json"), "utf8"));
   });
 
+  test("corrupt or hand-broken resume.json gives a UserError on render", async () => {
+    script({ "0": parseOut, "1": writeOut(resume) });
+    const { app } = await run();
+    const p = join(app.dir, "resume/v1/resume.json");
+    writeFileSync(p, "{ nope");
+    let e = (await renderApplication({ root, query: "atlas", template: "classic", open: false }).catch((x) => x)) as UserError;
+    expect(e).toBeInstanceOf(UserError);
+    expect(e.message).toBe(`Invalid resume.json at ${p}`);
+    const broken = structuredClone(resume);
+    delete broken.sections[0].items[0].bullets[0].entry_ids;
+    broken.skills = "lots";
+    writeFileSync(p, JSON.stringify(broken));
+    e = (await renderApplication({ root, query: "atlas", template: "classic", open: false }).catch((x) => x)) as UserError;
+    expect(e.message).toBe(`Invalid resume.json at ${p}`);
+    expect(e.hint).toMatch(/^sections\[0\]\.items\[0\]\.bullets\[0\]\.entry_ids: .+; skills: .+$/);
+  });
+
+  test("PDF metadata and non-English warning", async () => {
+    script({ "0": { "out/parsed-job.json": { ...parsedJob, language: "fr" } }, "1": writeOut(resume) });
+    const { app, warnings, pdfPath } = await run();
+    expect(warnings).toContain('job description language is "fr"; v1 is English-only');
+    const tex = readFileSync(join(app.dir, "resume/v1/resume.tex"), "utf8");
+    expect(tex).toContain("\\hypersetup{pdfauthor={Jordan Example}, pdftitle={Jordan Example — Resume}, pdfsubject={Senior Backend Engineer at Atlas Freight}}");
+    expect(existsSync(pdfPath)).toBe(true);
+  });
+
+  test("English job has no language warning", async () => {
+    script({ "0": parseOut, "1": writeOut(resume) });
+    const { warnings } = await run();
+    expect(warnings.some((w) => w.includes("English-only"))).toBe(false);
+  });
+
   test("compile failure after a valid agent run names the saved content", async () => {
     const tpl = join(layout(root).templates, "broken");
     mkdirSync(tpl, { recursive: true });
@@ -147,6 +179,25 @@ describe.skipIf(!hasLatex)("applyJob (compiles)", () => {
     expect(e.hint).toMatch(/^! Undefined control sequence\. — content saved at .*\/\.runs\/[^/]+\/write\/out\/resume\.json$/);
     expect(existsSync(e.hint!.split("content saved at ")[1]!)).toBe(true);
   });
+});
+
+test("empty or starter profile fails before any agent call", async () => {
+  script({ "0": parseOut, "1": writeOut(resume) });
+  const fresh = mkdtempSync(join(tmpdir(), "resumely-apply-empty-"));
+  try {
+    initDataRoot(fresh);
+    writeFileSync(layout(fresh).config, readFileSync(layout(root).config, "utf8"));
+    const e = (await applyJob({ root: fresh, input: await readJobFile(join(fx, "jobs/backend.md")), open: false }).catch((x) => x)) as UserError;
+    expect(e).toBeInstanceOf(UserError);
+    expect(e.message).toBe("Your profile is empty");
+    expect(e.hint).toBe(`Add entries under ${layout(fresh).profile} (see README) — check with: resumely profile show`);
+    // entries present but the starter name left in place
+    cpSync(join(fx, "profile-jordan/experience"), join(layout(fresh).profile, "experience"), { recursive: true });
+    await expect(applyJob({ root: fresh, input: await readJobFile(join(fx, "jobs/backend.md")), open: false })).rejects.toThrow("Your profile is empty");
+  } finally {
+    rmSync(fresh, { recursive: true, force: true });
+  }
+  expect(existsSync(join(root, "script.json.count"))).toBe(false);
 });
 
 test("missing latexmk fails before any agent call", async () => {
