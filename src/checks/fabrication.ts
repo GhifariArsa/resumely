@@ -34,10 +34,10 @@ export const RESUME_VERBS: readonly string[] = [
 
 /** Ordinary prose sentence openers. Opt-in (cover letters): resume bullets open with verbs and never need them. */
 export const PROSE_OPENERS: readonly string[] = [
-  "At", "In", "On", "To", "Of", "By", "For", "From", "With", "Over", "Beyond", "As", "If", "So", "But", "And", "Or", "Yet", "Still", "Even", "Just", "Not",
-  "My", "Our", "Your", "Their", "Its", "It", "That", "This", "These", "Those", "There", "Here", "They", "He", "She", "You",
+  "At", "In", "On", "To", "Of", "By", "For", "From", "With", "Over", "Beyond", "As", "If", "So", "But", "And", "Or", "Yet", "Still", "Just", "Not",
+  "My", "Our", "Your", "Their", "Its", "It", "That", "This", "These", "Those", "There", "They", "He", "She", "You",
   "Each", "Both", "Every", "Any", "All", "Most", "Many", "Some", "Another", "Other", "What", "Which", "Why", "How", "Whether", "When", "While", "Once",
-  "Since", "Because", "Before", "After", "During", "Earlier", "Later", "Today", "Recently", "Previously", "Currently", "Together", "Meanwhile",
+  "Since", "Because", "Before", "After", "During", "Earlier", "Later", "Today", "Recently", "Previously", "Currently", "Meanwhile",
   "Finally", "Overall", "Specifically", "Additionally", "However", "Moreover", "Instead", "Rather", "Please", "Thank", "Thanks", "Happy", "Glad",
 ];
 

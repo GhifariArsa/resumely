@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { ZodType } from "zod";
@@ -75,8 +75,8 @@ export function loadVoiceSamples(profileDir: string): { name: string; text: stri
   const d = join(profileDir, "voice");
   if (!existsSync(d)) return [];
   const out: { name: string; text: string }[] = [];
-  for (const name of readdirSync(d).filter((n) => /\.(md|txt)$/i.test(n)).sort()) {
-    const text = stripPrivate(readFileSync(join(d, name), "utf8")).body.trim().slice(0, VOICE_CHARS);
+  for (const name of readdirSync(d).filter((n) => /\.(md|txt)$/i.test(n) && statSync(join(d, n)).isFile()).sort()) {
+    const text = [...stripPrivate(readFileSync(join(d, name), "utf8")).body.trim()].slice(0, VOICE_CHARS).join("");
     if (!text) continue;
     out.push({ name, text });
     if (out.length === VOICE_FILES) break;

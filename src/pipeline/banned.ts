@@ -4,6 +4,8 @@ export const DEFAULT_BANNED: string[] = [
   "passionate about",
   "leverage",
   "leveraging",
+  "leveraged",
+  "leverages",
   "I am writing to express",
   "I am writing to apply",
   "delve",

@@ -149,7 +149,8 @@ export function validateResearch(raw: unknown): ValidationResult<CompanyResearch
   return errors.length ? { ok: false, errors } : { ok: true, value, warnings: [] };
 }
 
-const GREETING = /^Dear (Hiring Team|[A-Z][\w.'-]+( [A-Z][\w.'-]+)*),$/;
+const GREETING = /^Dear (Hiring Team|\p{Lu}[\p{L}\p{N}.'-]*( \p{Lu}[\p{L}\p{N}.'-]*)*),$/u;
+const CLOSING = /^(Sincerely|Best regards|Kind regards|Regards|Thank you|With thanks),$/;
 
 export type CoverLetterOptions = {
   profile: Profile;
@@ -178,9 +179,17 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
 
   const g = value.greeting.match(GREETING);
   if (!g) errors.push(`greeting: must be "Dear Hiring Team," or "Dear <Name>," (got "${value.greeting}")`);
-  else if (g[1] !== "Hiring Team" && !hasToken(o.jobText, g[1]!)) errors.push(`greeting: "${g[1]}" does not appear in the job posting; use "Dear Hiring Team,"`);
+  else if (g[1] !== "Hiring Team") {
+    const name = g[1]!;
+    if (/\b(Team|Hiring|Manager|Recruiter)\b/i.test(name) || [o.job.company, o.research?.company ?? ""].some((c) => c && c.toLowerCase() === name.toLowerCase())) {
+      errors.push(`greeting: "${name}" is not a person's name; use "Dear Hiring Team,"`);
+    } else if (!hasToken(o.jobText, name, true)) {
+      errors.push(`greeting: "${name}" does not appear in the job posting; use "Dear Hiring Team,"`);
+    }
+  }
   chars("greeting", value.greeting);
   chars("closing", value.closing);
+  if (!CLOSING.test(value.closing)) errors.push('closing: use a simple sign-off like "Sincerely,"');
 
   const words = value.paragraphs.reduce((n, p) => n + p.text.split(/\s+/).filter(Boolean).length, 0);
   if (words < 200 || words > 400) errors.push(`word count ${words} (must be 200–400)`);
@@ -192,7 +201,7 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
     for (const id of p.company_fact_ids) if (!facts.has(id)) errors.push(`${at}: unknown company fact id "${id}"`);
     chars(at, p.text);
     for (const b of banned) {
-      if (new RegExp(`(?<![\\p{L}\\p{N}])${escRe(b)}(?![\\p{L}\\p{N}])`, "iu").test(p.text)) errors.push(`${at}: banned phrase "${b}"`);
+      if (new RegExp(`(?<![\\p{L}\\p{N}])${escRe(b).replace(/\\? +/g, "\\s+")}(?![\\p{L}\\p{N}])`, "iu").test(p.text)) errors.push(`${at}: banned phrase "${b}"`);
     }
     const sources = [
       ...p.entry_ids.flatMap((id) => (byId.has(id) ? entrySources(byId.get(id)!) : [])),

@@ -33,3 +33,4 @@ Write `out/cover-letter.json`. It must be valid JSON that conforms to `cover-let
 - Do not output the candidate's name, contact details, date or the company address. The system fills them in.
 - Use plain text. Accented letters and the typographic dashes and quotes (– — ‘ ’ “ ”) are fine; avoid emoji and other symbols.
 - Every number and every product, company or technology name in your text must appear in the entries and company facts you cite (numbers keep their units). The company name and the role title from the posting are also allowed.
+- Any capitalised word mid-sentence (names, products, places, days) must appear in your sources.

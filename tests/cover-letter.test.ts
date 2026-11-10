@@ -32,7 +32,7 @@ describe("validateCoverLetter", () => {
     expect(r.ok && r.warnings).toEqual([]);
     expect(r.ok).toBe(true);
   });
-  test("fixture is about 280 words", () => {
+  test("fixture is 250-350 words", () => {
     const n = letter.paragraphs.flatMap((p) => p.text.split(/\s+/).filter(Boolean)).length;
     expect(n).toBeGreaterThanOrEqual(250);
     expect(n).toBeLessThanOrEqual(350);
@@ -60,6 +60,23 @@ describe("validateCoverLetter", () => {
     expect(errs({ ...letter, greeting: "Dear Priya Raman," })).toEqual([]);
     expect(errs({ ...letter, greeting: "Dear Sarah Chen," }).some((e) => e.includes("greeting") && e.includes("Sarah Chen"))).toBe(true);
     expect(errs({ ...letter, greeting: "Hello there" }).some((e) => e.includes("greeting"))).toBe(true);
+  });
+  test("greeting name checks are case-sensitive and reject non-names", () => {
+    const g = (greeting: string, jobText: string) => errs({ ...letter, greeting }, { jobText });
+    expect(g("Dear Will,", "you will join our team").some((e) => e.includes("greeting"))).toBe(true);
+    expect(g("Dear Team,", "our team is great").some((e) => e.includes("greeting"))).toBe(true);
+    expect(g("Dear Atlas Freight,", "Atlas Freight").some((e) => e.includes("greeting"))).toBe(true);
+    expect(g("Dear Hiring Manager,", "Hiring Manager").some((e) => e.includes("greeting"))).toBe(true);
+    expect(g("Dear Priya Patel,", "reporting to Priya Patel")).toEqual([]);
+    expect(g("Dear José García,", "Contact José García for details")).toEqual([]);
+  });
+  test("closing must be a simple sign-off", () => {
+    expect(errs({ ...letter, closing: "Yours in code," })).toContain('closing: use a simple sign-off like "Sincerely,"');
+    expect(errs({ ...letter, closing: "Best regards," })).toEqual([]);
+  });
+  test("banned phrase spans whitespace; leveraged is banned", () => {
+    expect(errs(withP(0, letter.paragraphs[0]!.text + " I am passionate\nabout dispatch.")).some((e) => e.includes('"passionate about"'))).toBe(true);
+    expect(errs(withP(0, letter.paragraphs[0]!.text + " I leveraged it.")).some((e) => e.includes('"leveraged"'))).toBe(true);
   });
   test("unsourced number is an error in both modes", () => {
     const t = letter.paragraphs[1]!.text + " I also saved $10M.";
@@ -123,10 +140,13 @@ describe("loadVoiceSamples", () => {
     writeFileSync(join(d, "voice/d.md"), "four");
     writeFileSync(join(d, "voice/e.md"), "five");
     writeFileSync(join(d, "voice/ignored.pdf"), "nope");
+    mkdirSync(join(d, "voice/sub.md"));
     const s = loadVoiceSamples(d);
     expect(s.map((x) => x.name)).toEqual(["a.md", "b.txt", "d.md"]);
     expect(s[0]!.text).toBe("Hello there.");
     expect(s[1]!.text.length).toBe(3000);
+    writeFileSync(join(d, "voice/b.txt"), "😀".repeat(3500));
+    expect([...loadVoiceSamples(d)[1]!.text]).toHaveLength(3000);
   });
   test("missing dir gives []", () => expect(loadVoiceSamples(mkdtempSync(join(tmpdir(), "v-")))).toEqual([]));
 });
