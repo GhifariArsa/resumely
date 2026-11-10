@@ -52,7 +52,7 @@ export function versionMeta(o: {
   review: Review | null;
   reviewedFinal: boolean;
   rounds: number;
-  research: "used" | "skipped" | "failed";
+  research: "used" | "none_found" | "skipped" | "failed";
   harness?: string;
   run?: string;
   template: string;

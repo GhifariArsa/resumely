@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isConfidential, renderCompanyMd, runResearch } from "../src/pipeline/research";
@@ -30,7 +30,7 @@ afterEach(() => {
 });
 const calls = () => (existsSync(join(dir, "script.json.calls")) ? readFileSync(join(dir, "script.json.calls"), "utf8") : "");
 const go = (over: Partial<Parameters<typeof runResearch>[0]> = {}) =>
-  runResearch({ adapter, name: "fake", runsDir: join(dir, "runs"), runId: "r1", appDir: join(dir, "app"), job, jobText: "JD", timeoutMs: 20000, ...over });
+  runResearch({ adapter, name: "fake", runsDir: join(dir, "runs"), runId: "r1", appDir: join(dir, "app"), job, timeoutMs: 20000, ...over });
 
 describe("runResearch", () => {
   test("happy path writes company.json/md, no profile in workspace; second run reuses", async () => {
@@ -41,9 +41,10 @@ describe("runResearch", () => {
     expect(JSON.parse(readFileSync(join(dir, "app/job/company.json"), "utf8"))).toEqual(company);
     expect(readFileSync(join(dir, "app/job/company.md"), "utf8")).toBe(renderCompanyMd(company));
     expect(calls()).toBe("research\n");
+    // the run keeps the logs and output, not the inputs
     const ws = join(dir, "runs/r1/research");
-    expect(existsSync(join(ws, "profile.json"))).toBe(false);
-    expect(readdirSync(ws)).toEqual(expect.arrayContaining(["job.md", "parsed-job.json", "company.schema.json"]));
+    expect(readdirSync(ws).sort()).toEqual(["out", "stderr.log", "stdout.log"]);
+    expect(JSON.parse(readFileSync(join(ws, "out/company.json"), "utf8"))).toEqual(company);
     const again = await go({ runId: "r2" });
     expect(again.research).toEqual(company);
     expect(again.status).toBe("used");
@@ -79,6 +80,62 @@ describe("runResearch", () => {
     expect(r.research).toBeNull();
     expect(r.status).toBe("failed");
     expect(r.warning).toContain("research failed:");
+  });
+});
+
+describe("R18: research inputs", () => {
+  const listing = () => {
+    const p = join(dir, "ls.jsonl");
+    return readFileSync(p, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { step: string; workspace: string; files: string[]; target?: unknown });
+  };
+  beforeEach(() => (process.env.FAKE_HARNESS_LS = join(dir, "ls.jsonl")));
+  afterEach(() => delete process.env.FAKE_HARNESS_LS);
+
+  test("the workspace holds only target.json and the schema, in the OS temp dir outside the data root", async () => {
+    const r = await go({ url: "https://jobs.example/atlas/123", job: { ...job, location: "Remote (Canada)" } });
+    expect(r.status).toBe("used");
+    const [seen] = listing();
+    expect(seen!.files).toEqual(["company.schema.json", "instructions.md", "out", "target.json"]);
+    expect(seen!.target).toEqual({ company: "Atlas Freight", role: "Backend", location: "Remote (Canada)", url: "https://jobs.example/atlas/123" });
+    expect(seen!.workspace.startsWith(realpathSync(tmpdir())) || seen!.workspace.startsWith(tmpdir())).toBe(true);
+    expect(seen!.workspace.startsWith(dir)).toBe(false);
+    expect(existsSync(seen!.workspace)).toBe(false);
+  });
+  test("target.json omits location and url when unknown", async () => {
+    await go();
+    expect(listing()[0]!.target).toEqual({ company: "Atlas Freight", role: "Backend" });
+  });
+  test("logs and errors are copied back into the run on failure", async () => {
+    writeFileSync(join(dir, "script.json"), JSON.stringify({ research: [{ "out/company.json": "INVALID", $stderr: "boom" }] }));
+    const r = await go();
+    expect(r.status).toBe("failed");
+    const ws = join(dir, "runs/r1/research");
+    expect(r.warning).toContain(`(logs: ${ws})`);
+    const files = readdirSync(ws).sort();
+    expect(files).toEqual(["errors.md", "out", "stderr.2.log", "stderr.3.log", "stderr.log", "stdout.2.log", "stdout.3.log", "stdout.log"]);
+    expect(readFileSync(join(ws, "stderr.log"), "utf8")).toContain("boom");
+    expect(readFileSync(join(ws, "errors.md"), "utf8")).toContain("not valid JSON");
+    expect(existsSync(listing()[0]!.workspace)).toBe(false);
+  });
+  test("logs are copied back when the harness fails", async () => {
+    process.env.FAKE_HARNESS_FAIL_STEP = "research";
+    const r = await go();
+    expect(r.status).toBe("failed");
+    expect(readFileSync(join(dir, "runs/r1/research/stderr.log"), "utf8")).toContain("usage limit");
+  });
+});
+
+describe("R17: nothing found", () => {
+  const empty = { company: "Atlas Freight", summary: "No verifiable sources for this company.", facts: [], sources: [] };
+  test("an empty fact list is valid", () => expect(validateResearch(empty).ok).toBe(true));
+  test("runResearch returns none_found without a warning, and reuses it", async () => {
+    writeFileSync(join(dir, "script.json"), JSON.stringify({ research: [{ "out/company.json": empty }] }));
+    const r = await go();
+    expect(r).toEqual({ research: null, status: "none_found" });
+    expect(JSON.parse(readFileSync(join(dir, "app/job/company.json"), "utf8"))).toEqual(empty);
+    const again = await go({ runId: "r2" });
+    expect(again).toEqual({ research: null, status: "none_found" });
+    expect(calls()).toBe("research\n");
   });
 });
 

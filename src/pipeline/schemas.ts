@@ -44,10 +44,8 @@ export type ResumeContent = z.infer<typeof ResumeContent>;
 export const CompanyResearch = z.object({
   company: z.string().min(1),
   summary: z.string().min(1),
-  facts: z
-    .array(z.object({ id: z.string().regex(/^co-\d+$/), text: z.string().min(1), source_url: z.string().min(1) }))
-    .min(1)
-    .max(15),
+  /** Empty when nothing verifiable was found: the correct answer then, not a failure. */
+  facts: z.array(z.object({ id: z.string().regex(/^co-\d+$/), text: z.string().min(1), source_url: z.string().min(1) })).max(15),
   sources: z.array(z.string()),
 });
 export type CompanyResearch = z.infer<typeof CompanyResearch>;

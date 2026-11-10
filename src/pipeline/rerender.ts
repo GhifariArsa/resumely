@@ -97,7 +97,7 @@ export async function renderApplication(opts: {
       facts, review,
       reviewedFinal: false,
       rounds: typeof keep("rounds") === "number" ? (keep("rounds") as number) : 0,
-      research: (["used", "skipped", "failed"] as const).find((s) => s === keep("research")) ?? "skipped",
+      research: (["used", "none_found", "skipped", "failed"] as const).find((s) => s === keep("research")) ?? "skipped",
       harness: keep("harness") as string | undefined,
       run: keep("run") as string | undefined,
       template: template.id,

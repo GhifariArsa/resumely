@@ -156,7 +156,7 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
   if (wantCover && coverable && opts.research !== false) {
     const r = await runResearch({
       adapter: resolveAdapter(harness, config, { research: true }),
-      name: harness, runsDir: l.runs, runId, appDir: app.dir, job, jobText, timeoutMs, onProgress,
+      name: harness, runsDir: l.runs, runId, appDir: app.dir, job, url: app.meta.source.url, timeoutMs, onProgress,
     });
     ({ research, status: researchStatus } = r);
     if (r.warning) warnings.push(r.warning);

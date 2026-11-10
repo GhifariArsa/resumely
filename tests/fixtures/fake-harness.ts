@@ -6,13 +6,20 @@
 //   "$exit" (exit code). Every call (including failing ones) appends "<step>\n" to <script>.calls.
 // FAKE_HARNESS_EXIT=1: fail with a rate-limit message.
 // FAKE_HARNESS_FAIL_STEP=<step>: fail with a rate-limit message for that step only.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// FAKE_HARNESS_LS=<file>: append {"step","workspace","files","target"} (the workspace listing on entry, and
+//   target.json's contents when present) as a JSON line.
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 const workspace = process.argv[2] ?? process.cwd();
 const step = basename(workspace);
 const scriptPath = process.env.FAKE_HARNESS_SCRIPT;
 if (scriptPath) appendFileSync(`${scriptPath}.calls`, `${step}\n`);
+if (process.env.FAKE_HARNESS_LS) {
+  const target = join(workspace, "target.json");
+  const entry = { step, workspace, files: readdirSync(workspace).sort(), target: existsSync(target) ? JSON.parse(readFileSync(target, "utf8")) : undefined };
+  appendFileSync(process.env.FAKE_HARNESS_LS, JSON.stringify(entry) + "\n");
+}
 if (process.env.FAKE_HARNESS_EXIT === "1" || process.env.FAKE_HARNESS_FAIL_STEP === step) {
   console.error("usage limit reached");
   process.exit(1);
