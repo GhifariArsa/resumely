@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { resolveDataRoot, requireDataRoot, layout } from "../src/paths";
 import { UserError } from "../src/errors";
 
@@ -26,4 +26,7 @@ test("requireDataRoot throws UserError with hint", () => {
     expect((e as UserError).hint).toBe("Run: resumely init");
     expect((e as UserError).message).toBe(`No resumely data root at ${d}`);
   }
+});
+test("relative RESUMELY_HOME is resolved to absolute", () => {
+  expect(resolveDataRoot({ RESUMELY_HOME: "rel/dir" })).toBe(resolve("rel/dir"));
 });

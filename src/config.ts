@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { parse } from "smol-toml";
 import { z } from "zod";
-import { layout } from "./paths";
+import { layout, requireDataRoot } from "./paths";
+import { UserError } from "./errors";
 
 const AdapterConfig = z.object({
   command: z.array(z.string()),
@@ -21,6 +22,20 @@ export type AdapterConfig = z.infer<typeof AdapterConfig>;
 export type Config = z.infer<typeof ConfigSchema>;
 
 export function loadConfig(root: string): Config {
-  const raw = parse(readFileSync(layout(root).config, "utf8"));
-  return ConfigSchema.parse(raw);
+  requireDataRoot(root);
+  const path = layout(root).config;
+  let raw: unknown;
+  try {
+    raw = parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    throw new UserError(`Invalid config at ${path}`, e instanceof Error ? e.message : String(e));
+  }
+  const result = ConfigSchema.safeParse(raw);
+  if (!result.success) {
+    const hint = result.error.issues
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("; ");
+    throw new UserError(`Invalid config at ${path}`, hint);
+  }
+  return result.data;
 }

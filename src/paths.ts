@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { UserError } from "./errors";
 
 export function resolveDataRoot(env: Record<string, string | undefined> = process.env): string {
-  if (env.RESUMELY_HOME) return env.RESUMELY_HOME;
+  if (env.RESUMELY_HOME) return resolve(env.RESUMELY_HOME);
   return join(env.HOME ?? homedir(), "resumely");
 }
 
