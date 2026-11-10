@@ -116,3 +116,25 @@ export function latestVersion(app: Application, kind: Kind): { dir: string; vers
   const version = versions(app, kind).at(-1);
   return version === undefined ? null : { dir: join(app.dir, kind, `v${version}`), version };
 }
+
+/** An earlier application for the same posting: same source URL, or the same company + role (case-insensitive). Most recent first. */
+export function findDuplicate(appsDir: string, o: { url?: string; company: string; role: string }): Application | null {
+  const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
+  const company = norm(o.company);
+  const role = norm(o.role);
+  return (
+    listApplications(appsDir).find(
+      (a) => (o.url && a.meta.source.url === o.url) || (company && role && norm(a.meta.company) === company && norm(a.meta.role) === role),
+    ) ?? null
+  );
+}
+
+/** Keep the application's original posting; save a re-applied posting next to it as `job/raw-<n>.md` (n = 2, 3, …). */
+export function saveExtraRaw(app: Application, text: string): string {
+  let n = 2;
+  while (existsSync(join(app.dir, "job", `raw-${n}.md`))) n++;
+  const path = join(app.dir, "job", `raw-${n}.md`);
+  mkdirSync(join(app.dir, "job"), { recursive: true });
+  writeFileSync(path, text);
+  return path;
+}
