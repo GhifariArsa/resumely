@@ -1,0 +1,87 @@
+{
+  "summary": {
+    "text": "Backend-leaning full-stack engineer with 7+ years building billing, data pipeline and open-source tooling in TypeScript and Go.",
+    "entry_ids": ["exp-atlas-labs", "exp-northwind"]
+  },
+  "sections": [
+    {
+      "kind": "experience",
+      "title": "Experience",
+      "items": [
+        {
+          "entry_id": "exp-atlas-labs",
+          "heading": "Senior Software Engineer",
+          "subheading": "Atlas Labs",
+          "location": "Montreal, QC",
+          "dates": "Mar 2023 - Present",
+          "bullets": [
+            { "text": "Led a team of 4 to rebuild the billing dashboard, cutting page load time by 60%.", "entry_ids": ["exp-atlas-labs"], "basis": "direct" },
+            { "text": "Designed an event-driven ingestion pipeline processing 2M events per day.", "entry_ids": ["exp-atlas-labs"], "basis": "direct" },
+            { "text": "Mentored 3 junior engineers and introduced RFC-based design reviews.", "entry_ids": ["exp-atlas-labs"], "basis": "direct" }
+          ]
+        },
+        {
+          "entry_id": "exp-northwind",
+          "heading": "Software Engineer",
+          "subheading": "Northwind Systems",
+          "location": "Toronto, ON",
+          "dates": "Jun 2019 - Dec 2022",
+          "bullets": [
+            { "text": "Built internal REST services in Go serving 50 teams.", "entry_ids": ["exp-northwind"], "basis": "direct" },
+            { "text": "Migrated a legacy Python monolith to containerized services on Kubernetes.", "entry_ids": ["exp-northwind"], "basis": "direct" },
+            { "text": "Reduced CI time from 25 to 9 minutes by parallelizing test suites.", "entry_ids": ["exp-northwind"], "basis": "direct" }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "projects",
+      "title": "Projects",
+      "items": [
+        {
+          "entry_id": "proj-ledgerly",
+          "heading": "Ledgerly",
+          "subheading": "Open-source bookkeeping library",
+          "dates": "Jan 2022 - Present",
+          "bullets": [
+            { "text": "Built a double-entry bookkeeping library used for R&D budgeting at a startup managing $5M in annual spend.", "entry_ids": ["proj-ledgerly"], "basis": "direct" },
+            { "text": "Adopted by a 100% remote team; added a C# interop layer for cross-language use.", "entry_ids": ["proj-ledgerly"], "basis": "direct" }
+          ]
+        },
+        {
+          "entry_id": "proj-routekit",
+          "heading": "RouteKit",
+          "subheading": "Go route optimization library",
+          "dates": "Apr 2021 - Nov 2021",
+          "bullets": [
+            { "text": "Authored a Go library for vehicle route optimization, earning 1.2k GitHub stars.", "entry_ids": ["proj-routekit"], "basis": "direct" }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "education",
+      "title": "Education",
+      "items": [
+        {
+          "entry_id": "edu-udem",
+          "heading": "B.Sc. Computer Science",
+          "subheading": "Université de Montréal",
+          "location": "Montreal, QC",
+          "dates": "Sep 2015 - May 2019",
+          "bullets": [
+            { "text": "Graduated with distinction; teaching assistant for Algorithms.", "entry_ids": ["edu-udem"], "basis": "direct" }
+          ]
+        }
+      ]
+    }
+  ],
+  "skills": [
+    { "category": "Languages", "items": ["TypeScript", "Python", "Go", "SQL"] },
+    { "category": "Frameworks", "items": ["React", "Node.js", "FastAPI"] },
+    { "category": "Tools", "items": ["PostgreSQL", "Docker", "Terraform", "GitHub Actions"] }
+  ],
+  "gaps": [
+    { "requirement": "Go in production at scale", "note": "Used Go at Northwind Systems and in RouteKit; no larger-scale claim made." }
+  ]
+}
