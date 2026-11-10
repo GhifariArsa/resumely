@@ -1,0 +1,10 @@
+{
+  "impression": "Solid backend profile, but the most relevant pipeline work is buried under dashboard and mentoring bullets.",
+  "scores": { "relevance": 3, "keywords": 3, "impact": 4, "formatting": 4 },
+  "red_flags": ["Go and PostgreSQL from the posting only appear in the skills list."],
+  "requests": [
+    "Experience > Atlas Labs: move the bullet starting \"Designed an event-driven ingestion pipeline\" to the top; it is the closest match to the posting.",
+    "Summary: name Go and PostgreSQL in the first sentence so the posting's core keywords appear early."
+  ],
+  "verdict": "revise"
+}

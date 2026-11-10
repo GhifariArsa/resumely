@@ -62,6 +62,19 @@ export const CoverLetterContent = z.object({
 });
 export type CoverLetterContent = z.infer<typeof CoverLetterContent>;
 
+const Score = z.number().int().min(1).max(5);
+
+/** HR-persona review of a compiled document. `voice` and `templated` are required for cover letters (see validateReview). */
+export const Review = z.object({
+  impression: z.string().min(1),
+  scores: z.object({ relevance: Score, keywords: Score, impact: Score, formatting: Score, voice: Score.optional() }),
+  red_flags: z.array(z.string()),
+  requests: z.array(z.string()),
+  verdict: z.enum(["pass", "revise"]),
+  templated: z.boolean().optional(),
+});
+export type Review = z.infer<typeof Review>;
+
 export function jsonSchemaFor(kind: "parsed-job" | "resume" | "company" | "cover-letter"): object {
   return z.toJSONSchema(kind === "parsed-job" ? ParsedJob : kind === "company" ? CompanyResearch : kind === "cover-letter" ? CoverLetterContent : ResumeContent) as object;
 }

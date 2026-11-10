@@ -1,0 +1,7 @@
+{
+  "impression": "Senior backend engineer with event-driven pipeline and Go service experience; a clear fit for the role on a first skim.",
+  "scores": { "relevance": 5, "keywords": 4, "impact": 4, "formatting": 5 },
+  "red_flags": ["No Rust or Kafka, both listed as requirements."],
+  "requests": [],
+  "verdict": "pass"
+}

@@ -2,7 +2,7 @@ import type { z } from "zod";
 import type { Entry, EntryType, Profile } from "../profile/schema";
 import { hasToken, PROSE_OPENERS, scanClaims } from "../checks/fabrication";
 import { unsupportedChars } from "../render/latex-escape";
-import { CompanyResearch, CoverLetterContent, ParsedJob, ResumeContent } from "./schemas";
+import { CompanyResearch, CoverLetterContent, ParsedJob, ResumeContent, Review } from "./schemas";
 
 export type ValidationResult<T> = { ok: true; value: T; warnings: string[] } | { ok: false; errors: string[] };
 
@@ -213,4 +213,25 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
     claimIssues(at, p.text, sources, o.mode, "the cited entries or company facts", errors, warnings, PROSE_OPENERS);
   });
   return errors.length ? { ok: false, errors } : { ok: true, value, warnings };
+}
+
+/**
+ * Schema plus the verdict rules the reviewer prompts state: `revise` needs a request, `pass` can't carry a
+ * score of 3 or lower, and cover-letter reviews must score `voice`, say whether the letter is `templated`
+ * and never pass a templated letter.
+ */
+export function validateReview(raw: unknown, kind: "resume" | "cover-letter"): ValidationResult<Review> {
+  const r = Review.safeParse(raw);
+  if (!r.success) return { ok: false, errors: schemaErrors(r.error.issues) };
+  const value = r.data;
+  const errors: string[] = [];
+  if (value.verdict === "revise" && !value.requests.some((q) => q.trim())) errors.push('requests: "revise" needs at least one concrete request');
+  if (kind === "cover-letter") {
+    if (value.scores.voice === undefined) errors.push("scores.voice: required for a cover letter review");
+    if (value.templated === undefined) errors.push("templated: required for a cover letter review");
+    if (value.templated === true && value.verdict === "pass") errors.push('verdict: a templated letter must be "revise"');
+  }
+  const low = Object.entries(value.scores).filter(([, n]) => n !== undefined && n <= 3).map(([k]) => k);
+  if (value.verdict === "pass" && low.length) errors.push(`verdict: "pass" with ${low.join(", ")} scored 3 or lower; use "revise"`);
+  return errors.length ? { ok: false, errors } : { ok: true, value, warnings: [] };
 }
