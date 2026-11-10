@@ -245,7 +245,7 @@ export function validateCoverLetter(raw: unknown, o: CoverLetterOptions): Valida
 
 /**
  * Schema plus the verdict rules the reviewer prompts state: `revise` needs a request, `pass` can't carry a
- * score of 3 or lower, and cover-letter reviews must score `voice`, say whether the letter is `templated`
+ * score of 2 or lower, and cover-letter reviews must score `voice`, say whether the letter is `templated`
  * and never pass a templated letter.
  */
 export function validateReview(raw: unknown, kind: "resume" | "cover-letter"): ValidationResult<Review> {
@@ -260,7 +260,7 @@ export function validateReview(raw: unknown, kind: "resume" | "cover-letter"): V
     if (value.templated === true && value.verdict === "pass") errors.push('verdict: a templated letter must be "revise"');
   }
   const scored = Object.entries(value.scores).filter(([k]) => kind === "cover-letter" || k !== "voice");
-  const low = scored.filter(([, n]) => n !== undefined && n <= 3).map(([k]) => k);
-  if (value.verdict === "pass" && low.length) errors.push(`verdict: "pass" with ${low.join(", ")} scored 3 or lower; use "revise"`);
+  const low = scored.filter(([, n]) => n !== undefined && n <= 2).map(([k]) => k);
+  if (value.verdict === "pass" && low.length) errors.push(`verdict: "pass" with ${low.join(", ")} scored 2 or lower; use "revise"`);
   return errors.length ? { ok: false, errors } : { ok: true, value, warnings: [] };
 }

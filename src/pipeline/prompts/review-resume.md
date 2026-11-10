@@ -30,23 +30,29 @@ Score only what a revision can change. `keywords` is scored on how well present 
 
 - `relevance`: the selection, ordering and emphasis of what's on the page for this role: the most relevant work comes first and gets the most space.
 - `keywords`: how well the `present` and `missed_in_profile` terms from `hard-facts.json` are surfaced: naturally and early (summary, first bullets, skills). `missed_in_profile` terms the document doesn't show yet are the clearest misses. `absent` terms never lower this score.
-- `impact`: bullets show outcomes, scope and ownership and start with strong verbs, rather than listing duties.
-- `formatting`: the length fits `target_pages`, the layout is easy to scan, structure is consistent and the ATS check passes.
+- `impact`: bullets show outcomes, scope and ownership and start with strong verbs, rather than listing duties. Judge what the page states; never lower `impact` for numbers or metrics the page doesn't contain, since the writer can't add a metric the record lacks.
+- `formatting`: the length fits `target_pages`, the layout is easy to scan, structure is consistent and the ATS check passes. `underflow` (a short page) never lowers this or any score: the writer never pads.
 
 ## red_flags
-Short, specific things that would make a recruiter hesitate: a must-have requirement that is missing, overflow, an ATS problem, vague or buzzword bullets, irrelevant content taking prime space, unexplained jumps. If the role needs X and it's absent, note it as a red flag, not a request. Treat each `fabrication_warnings` item as a red flag. Use `[]` when there are none.
+Short, specific things that would make a recruiter hesitate: a must-have requirement that is missing, overflow, underflow, an ATS problem, vague or buzzword bullets, irrelevant content taking prime space, unexplained jumps. If the role needs X and it's absent, note it as a red flag, not a request. Treat each `fabrication_warnings` item as a red flag. Use `[]` when there are none.
 
 ## requests
 Concrete revisions the writer can make. Each request points at a section or bullet (name the section and quote the first few words of the bullet) and says exactly what to change: reorder, cut, merge, tighten, lead with the outcome, fix the summary.
 - Never ask for skills or experience the document doesn't support. You can't know what the candidate has done, and the writer may only use what is true. Do not ask to add technologies, employers, titles, dates, numbers, metrics or credentials that are not already on the page; asking for them invites fabrication.
-- Two exceptions, because the candidate's record already supports them: you may ask to surface a `missed_in_profile` keyword (name it and where it belongs), and you may ask to show the scale or outcome of a specific bullet "if the candidate's record supports it". Never ask for an `absent` keyword.
+- Two exceptions, because the candidate's record already supports them:
+  - You may ask to surface a `missed_in_profile` keyword, but only for an entry whose text on the page already shows that work (name the entry and the keyword), or as an addition to the skills line. Never ask for an `absent` keyword.
+  - You may ask to show the scale or outcome of a specific bullet "if the candidate's record supports it". Such a conditional request is polish: it never decides the verdict.
 - On `overflow`, say which bullets or items to cut (the least relevant to this role first).
-- On `underflow`, say which relevant item deserves more detail; the writer adds only supported content.
+- On `underflow`, you may name the relevant item that looks thinnest, as polish; the writer adds only supported content and never pads.
 - Keep it to the changes that matter most, at most 8, most important first.
 
 ## Verdict
-- `revise` when any score is 3 or lower, when `overflow` is true, or on a red flag that matters for this role and that a revision can fix.
-- Otherwise `pass`. A missing requirement or `absent` keyword is a red flag only: it never lowers a score and is never a reason to revise, because a revision can't add it.
-- `revise` needs at least one request. A `pass` with any score of 3 or lower is invalid.
+- `revise` only when at least one of these holds:
+  - `overflow` is true;
+  - the ATS check `status` is `failed`;
+  - at least one request can be acted on from what is already on the page or in `job.md`, and would plausibly change a recruiter's decision to shortlist this candidate (for example: the strongest match for the role is buried, or the summary points at the wrong role).
+- Otherwise `pass`. Any remaining requests are recorded as polish; keep them in `requests`.
+- Never revise because of a missing requirement, an `absent` keyword, `underflow` or a conditional ("if the record supports it") request: a revision can't fix those truthfully.
+- A score of 2 or lower means something on the page needs fixing, so it requires `revise`. `revise` needs at least one request.
 
 Output strictly per the schema: `impression`, `scores` (`relevance`, `keywords`, `impact`, `formatting`), `red_flags`, `requests`, `verdict`.

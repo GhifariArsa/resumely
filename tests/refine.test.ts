@@ -172,6 +172,20 @@ describe("refine", () => {
     for (const ws of reviews) expect(existsSync(join(ws, "profile.json"))).toBe(false);
   });
 
+  test("R16: a revision identical to the previous value ends the loop with a warning", async () => {
+    script({ "resume-write": [out(resume)], "resume-review-1": [rev(revise)], "resume-revise-1": [out(structuredClone(resume))], "resume-review-2": [rev(pass)] });
+    const p = producer();
+    const r = await go({ produce: p.produce });
+    expect(calls()).toEqual(["resume-write", "resume-review-1", "resume-revise-1"]);
+    expect(r.value).toEqual(resume);
+    expect(p.seen).toEqual([resume]);
+    expect(r.review).toEqual(revise);
+    // the kept value is the one review-1 judged
+    expect(r.reviewedFinal).toBe(true);
+    expect(r.rounds).toBe(1);
+    expect(r.warnings).toEqual(["revision made no changes"]);
+  });
+
   test("maxRounds 0: only [write], review null", async () => {
     script({ "resume-write": [out(resume)] });
     const r = await go({ maxRounds: 0 });
@@ -441,10 +455,14 @@ describe("validateReview", () => {
     expect(errs({ ...revise, requests: ["  "] }).join()).toContain("requests");
   });
 
-  test("pass with a score of 3 or lower is inconsistent", () => {
-    expect(errs({ ...pass, scores: { ...pass.scores, keywords: 3 } }).join()).toContain("verdict");
+  test("R16: pass is invalid only with a score of 2 or lower; a 3 may pass", () => {
+    expect(errs({ ...pass, scores: { ...pass.scores, keywords: 3 } })).toEqual([]);
+    expect(errs({ ...pass, scores: { ...pass.scores, impact: 3, keywords: 3 }, requests: ["Polish: tighten the summary."] })).toEqual([]);
+    expect(errs({ ...pass, scores: { ...pass.scores, keywords: 2 } })).toEqual(['verdict: "pass" with keywords scored 2 or lower; use "revise"']);
+    expect(errs({ ...pass, scores: { ...pass.scores, relevance: 1, impact: 2 } })).toEqual(['verdict: "pass" with relevance, impact scored 2 or lower; use "revise"']);
     // voice is only a cover-letter score
     expect(errs({ ...pass, scores: { ...pass.scores, voice: 1 } })).toEqual([]);
+    expect(errs({ ...cover, scores: { ...cover.scores, voice: 3 } }, "cover-letter")).toEqual([]);
   });
 
   test("cover-letter reviews require voice and templated; templated must revise", () => {

@@ -66,8 +66,9 @@ export function writeRevisionFiles<T>(ws: string, revision: Revision<T>): void {
 
 /**
  * write → produce, then up to `maxRounds` × (review → revise → produce). A round revises on `revise` or on
- * overflow. The reviewer never sees the profile. A failed review or a rejected/uncompilable revision ends the
- * loop with a warning and keeps the last good version; failures of the initial write or produce propagate.
+ * overflow. The reviewer never sees the profile. A failed review, a rejected/uncompilable revision or a revision
+ * identical to the previous value ends the loop with a warning and keeps the last good version; failures of the
+ * initial write or produce propagate.
  */
 export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
   const prefix = o.kind === "resume" ? "resume" : "cover";
@@ -125,6 +126,11 @@ export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       warnings.push(`revision rejected: ${describe(e, vws)} (logs: ${vws})`);
+      break;
+    }
+    // Nothing changed: another review would judge the same document again.
+    if (Bun.deepEquals(next.value, value)) {
+      warnings.push("revision made no changes");
       break;
     }
     let nextProduced: Produced;
