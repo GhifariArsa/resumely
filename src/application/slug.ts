@@ -1,5 +1,11 @@
+const TRANSLIT: Record<string, string> = {
+  "ß": "ss", "ẞ": "SS", "ø": "o", "Ø": "O", "æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE",
+  "ł": "l", "Ł": "L", "đ": "d", "Đ": "D", "þ": "th", "Þ": "Th", "ð": "d", "Ð": "D", "ı": "i",
+};
+const TRANSLIT_RE = new RegExp(`[${Object.keys(TRANSLIT).join("")}]`, "g");
+
 function ascii(s: string): string {
-  return s.normalize("NFKD").replace(/[̀-ͯ]/g, "");
+  return s.replace(TRANSLIT_RE, (c) => TRANSLIT[c]!).normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
 }
 
 export function slugify(s: string, max = 40): string {

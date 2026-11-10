@@ -79,3 +79,10 @@ test("versions", () => {
   expect(latestVersion(a, "resume")!.version).toBe(11);
   expect(latestVersion(a, "cover-letter")).toBeNull();
 });
+
+test("transliterates non-decomposable letters", () => {
+  expect(slugify("Straße")).toBe("strasse");
+  expect(slugify("Søren Æon")).toBe("soren-aeon");
+  expect(slugify("Łukasz")).toBe("lukasz");
+  expect(sendReadyName("{First}_{Last}_{Kind}_{Company}", { name: "Søren Łukasz" }, "Resume", "Straße AG")).toBe("Soren_Lukasz_Resume_StrasseAG.pdf");
+});
