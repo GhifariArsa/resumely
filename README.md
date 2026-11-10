@@ -25,7 +25,7 @@ resumely ls                  # list applications
 resumely open <app>          # open the latest resume PDF (--version N for another)
 ```
 
-Other options: `apply [input] [--harness <name>] [--template <id>] [--no-open]`, `render <app> --template <id>` to re-render with another template, `profile show [id]`. Set `RESUMELY_HOME` to use a different data root.
+Other options: `apply [input] [--clip] [--harness <name>] [--template <id>] [--no-open]`, `render <app> --template <id>` to re-render with another template, `profile show [id]`. Set `RESUMELY_HOME` to use a different data root.
 
 ## Profile format
 
@@ -72,6 +72,7 @@ Built-in presets exist for `claude`, `codex` and `pi`. Choose one with `harness 
 ```toml
 harness = "pi"
 
+# (example provider — use one you've configured)
 [adapters.pi]
 command = ["pi", "-p", "--no-session", "--provider", "openai-codex", "--tools", "read,write,edit", "{prompt}"]
 check = ["pi", "--version"]
@@ -81,6 +82,14 @@ The pi preset defaults to pi's default provider (google). If that provider isn't
 
 ## Status: P1
 
-Works: init, profile show/context, apply (job parse, tailored one-page resume, gaps, trace), ls/open/render, claude/codex/pi presets (each verified end to end), private-content withholding.
+Works now:
 
-Coming: see [design.md](design.md) for the roadmap.
+- `init`, `profile show`, `profile context`
+- `apply`: job parse, tailored one-page resume, gaps, trace
+- `ls`, `open`, `render`
+- Private-content withholding
+- claude and codex verified end to end; pi verified with a provider override (see [Adapters](#adapters))
+
+Coming next:
+
+- Roadmap beyond P1: see [design.md](design.md)
