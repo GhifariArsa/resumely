@@ -36,6 +36,7 @@ describe("runResearch", () => {
   test("happy path writes company.json/md, no profile in workspace; second run reuses", async () => {
     const r = await go();
     expect(r.research).toEqual(company);
+    expect(r.status).toBe("used");
     expect(r.warning).toBeUndefined();
     expect(JSON.parse(readFileSync(join(dir, "app/job/company.json"), "utf8"))).toEqual(company);
     expect(readFileSync(join(dir, "app/job/company.md"), "utf8")).toBe(renderCompanyMd(company));
@@ -45,18 +46,19 @@ describe("runResearch", () => {
     expect(readdirSync(ws)).toEqual(expect.arrayContaining(["job.md", "parsed-job.json", "company.schema.json"]));
     const again = await go({ runId: "r2" });
     expect(again.research).toEqual(company);
+    expect(again.status).toBe("used");
     expect(calls()).toBe("research\n");
   });
 
   test("confidential: warning, no call", async () => {
     const r = await go({ job: { ...job, company: "Confidential (via Hays)" } });
-    expect(r).toEqual({ research: null, warning: "research skipped: confidential/agency posting" });
+    expect(r).toEqual({ research: null, status: "skipped", warning: "research skipped: confidential/agency posting" });
     expect(calls()).toBe("");
   });
 
   test("null adapter: warning", async () => {
     const r = await go({ adapter: null });
-    expect(r).toEqual({ research: null, warning: "research skipped: fake has no web tools (set adapters.fake.research_command)" });
+    expect(r).toEqual({ research: null, status: "skipped", warning: "research skipped: fake has no web tools (set adapters.fake.research_command)" });
     expect(calls()).toBe("");
   });
 
@@ -64,6 +66,7 @@ describe("runResearch", () => {
     process.env.FAKE_HARNESS_FAIL_STEP = "research";
     const r = await go();
     expect(r.research).toBeNull();
+    expect(r.status).toBe("failed");
     expect(r.warning).toContain("research failed:");
     expect(r.warning).toContain("logs:");
     expect(calls()).toContain("research\n");
@@ -74,6 +77,7 @@ describe("runResearch", () => {
     writeFileSync(join(dir, "script.json"), JSON.stringify({ research: [{ "out/company.json": "INVALID" }] }));
     const r = await go();
     expect(r.research).toBeNull();
+    expect(r.status).toBe("failed");
     expect(r.warning).toContain("research failed:");
   });
 });

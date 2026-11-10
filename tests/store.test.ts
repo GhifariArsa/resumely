@@ -3,7 +3,7 @@ import { mkdtempSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
-import { slugify, sendReadyName, createApplication, listApplications, findApplication, nextVersionDir, latestVersion } from "../src/application/store";
+import { slugify, sendReadyName, createApplication, listApplications, findApplication, nextVersionDir, latestVersion, findDuplicate, normaliseJobUrl } from "../src/application/store";
 import { slugify as slugify2 } from "../src/application/slug";
 import { UserError } from "../src/errors";
 import type { ParsedJob } from "../src/pipeline/schemas";
@@ -85,4 +85,18 @@ test("transliterates non-decomposable letters", () => {
   expect(slugify("Søren Æon")).toBe("soren-aeon");
   expect(slugify("Łukasz")).toBe("lukasz");
   expect(sendReadyName("{First}_{Last}_{Kind}_{Company}", { name: "Søren Łukasz" }, "Resume", "Straße AG")).toBe("Soren_Lukasz_Resume_StrasseAG.pdf");
+});
+
+test("normaliseJobUrl drops tracking params, fragments, trailing slash; lowercases the host", () => {
+  expect(normaliseJobUrl("HTTPS://Jobs.Example.com/acme/123/?utm_source=li&gh_src=abc&ref=x&id=7#apply")).toBe("https://jobs.example.com/acme/123?id=7");
+  expect(normaliseJobUrl("https://jobs.example.com/acme/123")).toBe("https://jobs.example.com/acme/123");
+  expect(normaliseJobUrl("https://jobs.example.com/")).toBe("https://jobs.example.com/");
+  expect(normaliseJobUrl("not a url/")).toBe("not a url");
+});
+
+test("findDuplicate matches URLs after normalisation", () => {
+  const d = tmp();
+  const a = createApplication(d, job("Atlas", "Backend Engineer"), { kind: "url", text: "t", url: "https://jobs.example.com/acme/123?utm_campaign=x" });
+  expect(findDuplicate(d, { url: "https://JOBS.example.com/acme/123/#top", company: "", role: "" })?.slug).toBe(a.slug);
+  expect(findDuplicate(d, { url: "https://jobs.example.com/acme/124", company: "", role: "" })).toBeNull();
 });

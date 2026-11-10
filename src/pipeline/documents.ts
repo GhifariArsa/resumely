@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AtsExpect } from "../checks/ats";
+import { hasToken } from "../checks/fabrication";
 import { buildHardFacts } from "../checks/facts";
 import type { AdapterConfig } from "../config";
 import { UserError } from "../errors";
@@ -12,7 +13,7 @@ import { renderCoverLetter, renderResume, type TemplateMeta } from "../render/re
 import { revisionInstructions, writeRevisionFiles, type Produced, type Revision } from "./refine";
 import { resolveResume, type EntryLike } from "./resolve";
 import { jsonSchemaFor, type CompanyResearch, type CoverLetterContent, type ParsedJob, type ResumeContent } from "./schemas";
-import { validateCoverLetter, validateResume } from "./validate";
+import { normaliseSkill, validateCoverLetter, validateResume } from "./validate";
 import { json } from "./version";
 import { runAgentStep } from "./workspace";
 
@@ -71,6 +72,20 @@ export async function produceCover(o: Measure & { template: TemplateMeta; about:
   const tex = renderCoverLetter(o.template, { about: o.about, letter: o.letter, job: o.job, date: o.date });
   const p = await measure(tex, o.template.engine, 1, coverAtsExpect(o.about, o.letter), coverText(o.letter), o);
   return { ...p, facts: { ...p.facts, underflow: false } };
+}
+
+/**
+ * Stretch claims for the user to check: `inferred` bullets, and listed skills that no skills list contains
+ * (allowed in stretch because an entry body names them), cited to those entries.
+ */
+export function inferredClaims(c: ResumeContent, profile: Profile): { text: string; entry_ids: string[] }[] {
+  const bullets = c.sections.flatMap((s) => s.items.flatMap((i) => i.bullets.filter((b) => b.basis === "inferred").map((b) => ({ text: b.text, entry_ids: b.entry_ids }))));
+  const listed = new Set([...Object.values(profile.skills).flat(), ...profile.entries.flatMap((e) => e.skills)].map(normaliseSkill));
+  const skills = c.skills.flatMap((g) => g.items).filter((v) => !listed.has(normaliseSkill(v)));
+  return [
+    ...bullets,
+    ...[...new Set(skills.map((v) => v.trim()))].map((v) => ({ text: `skill: ${v}`, entry_ids: profile.entries.filter((e) => hasToken(e.body, v, true)).map((e) => e.id) })),
+  ];
 }
 
 /** Truthful rules, plus the stretch rules when stretching. */

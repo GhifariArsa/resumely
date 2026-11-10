@@ -13,10 +13,10 @@ import { buildAgentPayload } from "../profile/context";
 import { loadProfile, loadVoiceSamples } from "../profile/load";
 import { builtinTemplatesDir, findTemplate, formatLetterDate } from "../render/render";
 import { DEFAULT_BANNED } from "./banned";
-import { coverDocument, profileTextOf, resumeDocument, type Doc, type DocContext } from "./documents";
+import { coverDocument, inferredClaims, profileTextOf, resumeDocument, type Doc, type DocContext } from "./documents";
 import { refine, type DocumentKind, type RefineResult } from "./refine";
-import { runResearch } from "./research";
-import { jsonSchemaFor, type ParsedJob, type ResumeContent, type Review } from "./schemas";
+import { runResearch, type ResearchStatus } from "./research";
+import { jsonSchemaFor, type CompanyResearch, type ParsedJob, type ResumeContent, type Review } from "./schemas";
 import { validateParsedJob } from "./validate";
 import { citedFacts, coverEntryIds, coverTrace, json, notReadyReasons, pickVersion, resumeEntryIds, resumeTrace, saveVersion, snapshotOf, versionMeta, isReady } from "./version";
 import { resolveResume } from "./resolve";
@@ -141,19 +141,20 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
     if (!(await opts.pause(job, likelyGaps))) throw new UserError("Aborted");
   }
 
-  // Research only feeds the cover letter.
-  let research = null;
-  let researchStatus: "used" | "skipped" | "failed" = "skipped";
-  if (wantCover && opts.research !== false) {
+  // Research only feeds the cover letter, so it runs only when a letter can be written.
+  const coverable = template.supports.includes("cover-letter");
+  let research: CompanyResearch | null = null;
+  let researchStatus: ResearchStatus = "skipped";
+  if (wantCover && coverable && opts.research !== false) {
     const r = await runResearch({
       adapter: resolveAdapter(harness, config, { research: true }),
       name: harness, runsDir: l.runs, runId, appDir: app.dir, job, jobText, timeoutMs, onProgress,
     });
-    research = r.research;
-    researchStatus = research ? "used" : r.warning?.startsWith("research failed") ? "failed" : "skipped";
+    ({ research, status: researchStatus } = r);
     if (r.warning) warnings.push(r.warning);
   }
 
+  const letterDate = formatLetterDate(new Date());
   const tag = (t: string) => (m: string) => onProgress?.(`[${t}] ${m}`);
   const ctx = (t: string): DocContext => ({
     adapter, name: harness, timeoutMs, profile, payload, job, jobText, template, mode, profileText,
@@ -166,9 +167,9 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
       reviewFiles: { "job.md": jobText }, onProgress: tag(TAG[kind]),
     });
   const coverLoop = async () => {
-    if (!template.supports.includes("cover-letter")) throw new UserError(`template ${template.id} has no cover-letter design`);
+    if (!coverable) throw new UserError(`template ${template.id} has no cover-letter design`);
     const banned = [...new Set([...DEFAULT_BANNED, ...config.banned_phrases])];
-    const doc = await coverDocument(ctx("cover"), { research, banned, voice: loadVoiceSamples(l.profile), date: formatLetterDate(new Date()) });
+    const doc = await coverDocument(ctx("cover"), { research, banned, voice: loadVoiceSamples(l.profile), date: letterDate });
     return loop("cover-letter", doc);
   };
   const [rs, cs] = await Promise.allSettled([
@@ -178,12 +179,12 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
 
   const result: ApplyResult = { app, failures: [], gaps: [], inferred: [], warnings };
   let atsHint: string | undefined;
-  const save = <T>(kind: DocumentKind, r: RefineResult<T>, files: Record<string, string>): DocResult => {
+  const save = <T>(kind: DocumentKind, r: RefineResult<T>, files: Record<string, string>, extra?: Record<string, unknown>): DocResult => {
     const facts = r.produced.facts;
     const saved = saveVersion({
       app, kind, about: profile.about, pdf: r.produced.pdf, filename: config.filename,
       files: { ...files, ...(r.review ? { "review.json": json(r.review) } : {}), "checks.json": json({ ...facts, warnings: r.warnings }) },
-      meta: versionMeta({ mode, research: researchStatus, harness, run: runDir, template: template.id, facts, review: r.review, reviewedFinal: r.reviewedFinal, rounds: r.rounds }),
+      meta: versionMeta({ mode, research: researchStatus, harness, run: runDir, template: template.id, facts, review: r.review, reviewedFinal: r.reviewedFinal, rounds: r.rounds, extra }),
     });
     warnings.push(...[...r.warnings, ...notReadyReasons(facts).map((w) => `not ready: ${w}`)].map((w) => `[${TAG[kind]}] ${w}`));
     if (facts.ats.status === "skipped" && facts.ats.hint) atsHint = facts.ats.hint;
@@ -198,7 +199,7 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
       "entries.snapshot.json": json(snapshotOf(resumeEntryIds(r.value), payload.entries)),
     });
     result.gaps = r.value.gaps;
-    result.inferred = r.value.sections.flatMap((s) => s.items.flatMap((i) => i.bullets.filter((b) => b.basis === "inferred").map((b) => ({ text: b.text, entry_ids: b.entry_ids }))));
+    result.inferred = inferredClaims(r.value, profile);
   }
   if (cs.status === "fulfilled" && cs.value) {
     const r = cs.value;
@@ -208,7 +209,7 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
       "trace.json": json(coverTrace(r.value)),
       "entries.snapshot.json": json(snapshotOf(coverEntryIds(r.value), payload.entries)),
       "company.snapshot.json": json(citedFacts(r.value, research)),
-    });
+    }, { date: letterDate });
   }
   if (atsHint) warnings.push(`ATS check skipped: ${atsHint}`);
 
@@ -220,9 +221,13 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
     const e = error as UserError;
     result.failures.push(e.hint ? { kind, message: e.message, hint: e.hint } : { kind, message: e.message });
   }
-  if (opts.open !== false && result.resume) await openFile(result.resume.pdfPath);
+  const toOpen = pdfToOpen(result);
+  if (opts.open !== false && toOpen) await openFile(toOpen);
   return result;
 }
+
+/** The PDF `apply` opens: the resume, or the cover letter when only it was produced. */
+export const pdfToOpen = (r: ApplyResult): string | undefined => r.resume?.pdfPath ?? r.cover?.pdfPath;
 
 export function pdfIn(dir: string): string {
   const f = readdirSync(dir).find((n) => n.endsWith(".pdf"));

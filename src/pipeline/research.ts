@@ -27,6 +27,9 @@ function loadExisting(path: string): CompanyResearch | null {
   }
 }
 
+export type ResearchStatus = "used" | "skipped" | "failed";
+export type ResearchOutcome = { research: CompanyResearch | null; status: ResearchStatus; warning?: string };
+
 export async function runResearch(o: {
   adapter: AdapterConfig | null;
   name: string;
@@ -37,13 +40,13 @@ export async function runResearch(o: {
   jobText: string;
   timeoutMs: number;
   onProgress?: (m: string) => void;
-}): Promise<{ research: CompanyResearch | null; warning?: string }> {
+}): Promise<ResearchOutcome> {
   const jsonPath = join(o.appDir, "job", "company.json");
   const existing = loadExisting(jsonPath);
-  if (existing) return { research: existing };
-  if (isConfidential(o.job)) return { research: null, warning: "research skipped: confidential/agency posting" };
+  if (existing) return { research: existing, status: "used" };
+  if (isConfidential(o.job)) return { research: null, status: "skipped", warning: "research skipped: confidential/agency posting" };
   if (o.adapter === null) {
-    return { research: null, warning: `research skipped: ${o.name} has no web tools (set adapters.${o.name}.research_command)` };
+    return { research: null, status: "skipped", warning: `research skipped: ${o.name} has no web tools (set adapters.${o.name}.research_command)` };
   }
   const workspace = createRunWorkspace(o.runsDir, "research", o.runId);
   o.onProgress?.("researching company…");
@@ -65,9 +68,9 @@ export async function runResearch(o: {
     });
     writeFileSync(jsonPath, JSON.stringify(value, null, 2) + "\n");
     writeFileSync(join(o.appDir, "job", "company.md"), renderCompanyMd(value));
-    return { research: value };
+    return { research: value, status: "used" };
   } catch (e) {
-    if (e instanceof UserError) return { research: null, warning: `research failed: ${e.message} (logs: ${workspace})` };
+    if (e instanceof UserError) return { research: null, status: "failed", warning: `research failed: ${e.message} (logs: ${workspace})` };
     throw e;
   }
 }

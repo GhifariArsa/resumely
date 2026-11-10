@@ -117,14 +117,33 @@ export function latestVersion(app: Application, kind: Kind): { dir: string; vers
   return version === undefined ? null : { dir: join(app.dir, kind, `v${version}`), version };
 }
 
-/** An earlier application for the same posting: same source URL, or the same company + role (case-insensitive). Most recent first. */
+const TRACKING = /^(utm_.*|ref|gh_src)$/i;
+
+/** Compare posting URLs as the same page: lowercase scheme/host, no fragment, no tracking params, no trailing slash. */
+export function normaliseJobUrl(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url.trim());
+  } catch {
+    return url.trim().replace(/\/+$/, "");
+  }
+  u.hash = "";
+  for (const k of [...u.searchParams.keys()]) if (TRACKING.test(k)) u.searchParams.delete(k);
+  if (u.pathname.length > 1) u.pathname = u.pathname.replace(/\/+$/, "");
+  return u.toString();
+}
+
+/** An earlier application for the same posting: same source URL (normalised), or the same company + role (case-insensitive). Most recent first. */
 export function findDuplicate(appsDir: string, o: { url?: string; company: string; role: string }): Application | null {
   const norm = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
   const company = norm(o.company);
   const role = norm(o.role);
+  const url = o.url ? normaliseJobUrl(o.url) : "";
   return (
     listApplications(appsDir).find(
-      (a) => (o.url && a.meta.source.url === o.url) || (company && role && norm(a.meta.company) === company && norm(a.meta.role) === role),
+      (a) =>
+        (url && a.meta.source.url && normaliseJobUrl(a.meta.source.url) === url) ||
+        (company && role && norm(a.meta.company) === company && norm(a.meta.role) === role),
     ) ?? null
   );
 }

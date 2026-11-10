@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
 import { layout } from "../src/paths";
-import { applyJob, renderApplication, formatApplicationList } from "../src/pipeline/apply";
+import { applyJob, renderApplication, formatApplicationList, pdfToOpen, type ApplyResult } from "../src/pipeline/apply";
 import { readJobFile, type JobSource } from "../src/job/intake";
 import { findApplication, findDuplicate, listApplications } from "../src/application/store";
 import { UserError } from "../src/errors";
@@ -210,7 +210,7 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     const r = await run({ template: "plain" });
     expect(r.resume?.version).toBe(1);
     expect(r.failures).toEqual([{ kind: "cover-letter", message: "template plain has no cover-letter design" }]);
-    expect(calls().some((c) => c.startsWith("cover-"))).toBe(false);
+    expect(calls().some((c) => c.startsWith("cover-") || c === "research")).toBe(false);
   }, 60000);
 
   test("duplicate: no onDuplicate aborts; 'existing' adds resume v2 and reuses research", async () => {
@@ -263,9 +263,13 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     const stretched = structuredClone(resume);
     const bullet = { text: "Owned PostgreSQL schema changes behind the billing dashboard rebuild.", entry_ids: ["exp-atlas-labs"], basis: "inferred" };
     stretched.sections[0].items[0].bullets.push(bullet);
+    stretched.skills[2].items.push("Kubernetes"); // only in exp-northwind's body
     script(full({ "resume-write": [writeOut(stretched)] }));
     const r = await run({ mode: "stretch", cover: false });
-    expect(r.inferred).toEqual([{ text: bullet.text, entry_ids: bullet.entry_ids }]);
+    expect(r.inferred).toEqual([
+      { text: bullet.text, entry_ids: bullet.entry_ids },
+      { text: "skill: Kubernetes", entry_ids: ["exp-northwind"] },
+    ]);
     expect(readJson(join(r.app.dir, "resume/v1/meta.json")).mode).toBe("stretch");
     expect(readFileSync(join(runDir(), "resume-write/instructions.md"), "utf8")).toContain('Mark every inferred bullet `basis: "inferred"`.');
   }, 60000);
@@ -283,6 +287,13 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     for (const f of ["company.snapshot.json", "entries.snapshot.json", "trace.json", "checks.json", "Jordan_Example_Cover_Letter_AtlasFreight.pdf"]) expect(existsSync(join(v2, f))).toBe(true);
     const meta = readJson(join(v2, "meta.json"));
     expect(meta).toMatchObject({ rendered_from: 1, ready: true, template: "classic", mode: "truthful" });
+    // The letter keeps its original date across re-renders.
+    const v1meta = join(app.dir, "cover-letter/v1/meta.json");
+    expect(typeof readJson(v1meta).date).toBe("string");
+    writeFileSync(v1meta, JSON.stringify({ ...readJson(v1meta), date: "March 3, 2026" }));
+    await renderApplication({ root, query: "atlas", template: "classic", kind: "cover-letter", version: 1, open: false });
+    expect(readFileSync(join(app.dir, "cover-letter/v3/cover-letter.tex"), "utf8")).toContain("March 3, 2026");
+    expect(readJson(join(app.dir, "cover-letter/v3/meta.json")).date).toBe("March 3, 2026");
     expect(existsSync(join(app.dir, "resume/v2"))).toBe(false);
   }, 60000);
 });
@@ -513,4 +524,12 @@ test.skipIf(!hasLatex)("invalid parse on all attempts: no application dir", asyn
 
 test("ls with no applications", () => {
   expect(formatApplicationList([])).toBe("No applications yet. Try: resumely apply --clip");
+});
+
+test("pdfToOpen: the resume, else the cover letter when only it succeeded", () => {
+  const doc = (p: string) => ({ pdfPath: p, version: 1, pages: 1, ready: true, review: null });
+  const base = { app: {} as ApplyResult["app"], failures: [], gaps: [], inferred: [], warnings: [] };
+  expect(pdfToOpen({ ...base, resume: doc("/r.pdf"), cover: doc("/c.pdf") })).toBe("/r.pdf");
+  expect(pdfToOpen({ ...base, cover: doc("/c.pdf") })).toBe("/c.pdf");
+  expect(pdfToOpen(base)).toBeUndefined();
 });

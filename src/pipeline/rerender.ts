@@ -61,6 +61,7 @@ export async function renderApplication(opts: {
     ...(review ? { "review.json": readFileSync(at("review.json"), "utf8") } : {}),
   };
 
+  const extra: Record<string, unknown> = { rendered_from: src.version };
   opts.onProgress?.("compiling…");
   let produced: Produced;
   if (kind === "resume") {
@@ -75,7 +76,10 @@ export async function renderApplication(opts: {
   } else {
     const letter = readJsonFile(at("cover-letter.json"), CoverLetterContent);
     readJsonFile(at("company.snapshot.json"), CompanyResearch.shape.facts.element.array());
-    produced = await produceCover({ ...m, template, about, letter, job: appJob, date: formatLetterDate(new Date()) });
+    // Keep the letter's original date: a template swap must not redate it.
+    const date = typeof old.date === "string" ? old.date : formatLetterDate(new Date());
+    extra.date = date;
+    produced = await produceCover({ ...m, template, about, letter, job: appJob, date });
     Object.assign(files, {
       "cover-letter.json": json(letter),
       "cover-letter.tex": produced.tex,
@@ -97,7 +101,7 @@ export async function renderApplication(opts: {
       harness: keep("harness") as string | undefined,
       run: keep("run") as string | undefined,
       template: template.id,
-      extra: { rendered_from: src.version },
+      extra,
     }),
   });
   const label = kind === "resume" ? "resume" : "cover letter";
