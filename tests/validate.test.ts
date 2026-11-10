@@ -131,7 +131,7 @@ test("unsupported characters are rejected with code point; mapped symbols pass",
     'skills[0].category: unsupported character "✨" (U+2728)',
   ]);
   const d = fixture();
-  d.sections[0].items[0].bullets[0].text = "Grew revenue ≈ 4× — “fast” • the team’s…";
+  d.sections[0].items[0].bullets[0].text = "Grew revenue × ≈ 4 — “fast” • the team’s…";
   expect(validateResume(d, profile, "truthful").ok).toBe(true);
 });
 
@@ -183,4 +183,10 @@ test("stretch body skill must match case-sensitively", () => {
   const c = fixture();
   c.skills[2].items.push("kubernetes");
   expect(validateResume(c, profile, "stretch").ok).toBe(false);
+});
+
+test("stretch: invented x2 multiplier is an error", () => {
+  const c = fixture();
+  c.sections[0].items[0].bullets[0].text = "Scaled throughput x2.";
+  expect(errs(validateResume(c, profile, "stretch")).join("\n")).toContain('"2x" is not supported');
 });

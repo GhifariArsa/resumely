@@ -74,4 +74,27 @@ test("token boundaries are dot-aware", () => {
 test("numbers inside reported proper nouns are not reported twice", () => {
   expect(scanClaims("Moved to v2.0 stack", none)).toEqual(["v2.0"]);
   expect(scanClaims("Stored in S3", none)).toEqual(["S3"]);
+  expect(scanClaims("Stored backups in S3, saving 3 hours", none)).toEqual(["3", "S3"]);
+});
+
+test(".NET is one token", () => {
+  expect(scanClaims("Built services in .NET", ["Services in .NET and C#"])).toEqual([]);
+  expect(scanClaims("Built services in .NET", ["ASP.NET"])).toEqual([".NET"]);
+});
+
+test("number words in generated text are not numbers", () => {
+  expect(scanClaims("Delivered zero-downtime migrations", none)).toEqual([]);
+  expect(scanClaims("Built a one-click deploy", none)).toEqual([]);
+  expect(scanClaims("Hired twenty-five engineers", ["25 engineers"])).toEqual([]);
+});
+
+test("hyphenated and inflected sentence openers", () => {
+  for (const t of ["Co-led the team", "Re-architected billing", "End-to-end tests shipped", "Leads reviews", "Rebuilt search", "Stood up CI", "Also fixed bugs"]) {
+    expect(scanClaims(t, none)).toEqual([]);
+  }
+});
+
+test("x and multiplication sign are the same unit; x2 is a number", () => {
+  expect(scanClaims("Grew 2x", ["2×"])).toEqual([]);
+  expect(scanClaims("Grew x2", none)).toEqual(["2x"]);
 });

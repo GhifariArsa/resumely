@@ -4,7 +4,7 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 /** Capitalised words that are never treated as claims. Compared case-insensitively, without a trailing `.`. */
-export const STOP_WORDS: readonly string[] = ["I", "A", "The", "We", ...MONTHS, ...WEEKDAYS, "e.g", "i.e", "vs", "etc"];
+export const STOP_WORDS: readonly string[] = ["I", "A", "The", "We", "Then", "Also", "Now", "Later", ...MONTHS, ...WEEKDAYS, "e.g", "i.e", "vs", "etc"];
 
 /** Generic capitalised words (titles, ubiquitous acronyms) that need no sourcing. An optional plural "s" is accepted. */
 export const GENERIC_CAPITALISED: readonly string[] = [
@@ -28,7 +28,8 @@ export const RESUME_VERBS: readonly string[] = [
   "Hired", "Hire", "Handle", "Open", "Reworked", "Rewrote", "Rewrite", "Oversaw", "Oversee", "Became", "Become", "Brought",
   "Bring", "Cleared", "Co-led", "Mentoring", "Achieve", "Analyze", "Analyse", "Apply", "Assist", "Audit", "Boost", "Carry",
   "Document", "Enable", "Ensure", "Execute", "Facilitate", "Generate", "Guide", "Identify", "Integrate", "Lower", "Monitor",
-  "Prototype", "Review", "Secure", "Simplify", "Standardize", "Standardise", "Unify", "Use", "Utilize", "Validate",
+  "Rebuilt", "Stood", "Hit", "Spent", "Split", "Bought", "Sought", "Felt", "Met", "Paid", "Read", "Shot", "Spoke", "Told",
+  "Understood", "End-to-end", "Co-led", "Prototype", "Review", "Secure", "Simplify", "Standardize", "Standardise", "Unify", "Use", "Utilize", "Validate",
 ];
 
 const IGNORED = new Set([...STOP_WORDS, ...GENERIC_CAPITALISED].map((w) => w.toLowerCase()));
@@ -39,39 +40,43 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Whole-token match: no letter/digit/_/#/+/. directly before, and no letter/digit/#/+ (or `.`+alnum) after. */
 export function hasToken(text: string, token: string, caseSensitive = false): boolean {
-  return new RegExp(`(?<![\\p{L}\\p{N}_#+.])${esc(token)}(?![\\p{L}\\p{N}_#+]|\\.[\\p{L}\\p{N}])`, caseSensitive ? "u" : "iu").test(text);
+  const before = token.startsWith(".") ? "(?<![\\p{L}\\p{N}_#+])" : "(?<![\\p{L}\\p{N}_#+.])";
+  return new RegExp(`${before}${esc(token)}(?![\\p{L}\\p{N}_#+]|\\.[\\p{L}\\p{N}])`, caseSensitive ? "u" : "iu").test(text);
 }
 
 const WORD_NUMBERS = [
-  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen",
+  "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen",
   "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
 ];
 const WORD_RE = new RegExp(`\\b(${WORD_NUMBERS.join("|")})\\b`, "gi");
 
-function normaliseNumbers(text: string): string {
-  return text
+/** Unit words and multipliers normalise on both sides; number words (one..twenty) only in sources. */
+function normaliseNumbers(text: string, words: boolean): string {
+  const t = text
+    .replace(/×/g, "x")
+    .replace(/(?<![\p{L}\d_])x(\d+)\b/gi, "$1x")
     .replace(/(\d)\s*percent\b/gi, "$1%")
     .replace(/(\d)\s*thousand\b/gi, "$1k")
     .replace(/(\d)\s*million\b/gi, "$1m")
-    .replace(/(\d)\s*billion\b/gi, "$1b")
-    .replace(WORD_RE, (w) => String(WORD_NUMBERS.indexOf(w.toLowerCase())));
+    .replace(/(\d)\s*billion\b/gi, "$1b");
+  return words ? t.replace(WORD_RE, (w) => String(WORD_NUMBERS.indexOf(w.toLowerCase()) + 1)) : t;
 }
 
 const NUMBER_RE = /(?<![\p{L}\d_.,])\$?\d+(?:,\d{3})*(?:\.\d+)?(?:\s?(%|[kmbx](?![\p{L}\p{N}])))?/giu;
 
-function numbersIn(text: string): { raw: string; key: string }[] {
+function numbersIn(text: string, words: boolean): { raw: string; key: string }[] {
   const out: { raw: string; key: string }[] = [];
-  for (const m of normaliseNumbers(text).matchAll(NUMBER_RE)) {
+  for (const m of normaliseNumbers(text, words).matchAll(NUMBER_RE)) {
     const digits = m[0].replace(/\D/g, "");
     if (digits) out.push({ raw: m[0].trim(), key: `${digits}|${(m[1] ?? "").toLowerCase()}` });
   }
   return out;
 }
 
-const TOKEN_RE = /[\p{L}\p{N}][\p{L}\p{N}+#.]*/gu;
+const TOKEN_RE = /(?:(?<![\p{L}\p{N}.])\.)?[\p{L}\p{N}][\p{L}\p{N}+#.]*/gu;
 
 function isProperNoun(t: string): boolean {
-  if (/^\d/.test(t) || t.length < 2) return false;
+  if (/^\d/.test(t) || /^x\d+$/i.test(t) || t.length < 2) return false;
   return /^\p{Lu}/u.test(t) || /[\p{Lu}\p{N}#.+]/u.test(t.slice(1));
 }
 
@@ -80,9 +85,18 @@ function isGeneric(t: string): boolean {
   return IGNORED.has(l) || (l.endsWith("s") && IGNORED.has(l.slice(0, -1))) || GENERIC_PATTERNS.some((p) => p.test(t));
 }
 
-function exemptAtSentenceStart(t: string): boolean {
-  const l = t.toLowerCase();
-  return /(ed|ing)$/.test(l) || VERBS.has(l) || STOPS.has(l);
+function exemptWord(l: string): boolean {
+  return (
+    /(ed|ing)$/.test(l) || VERBS.has(l) || STOPS.has(l) ||
+    (l.endsWith("s") && (VERBS.has(l.slice(0, -1)) || VERBS.has(l.slice(0, -2))))
+  );
+}
+
+/** Exempt the whole (possibly hyphenated) opening word; a hyphenated word whose last part is a verb form counts as a verb. */
+function exemptAtSentenceStart(sentence: string, t: string): boolean {
+  const whole = (sentence.match(/^[^\p{L}\p{N}]*([\p{L}\p{N}][\p{L}\p{N}-]*)/u)?.[1] ?? t).toLowerCase();
+  const last = whole.split("-").pop()!;
+  return exemptWord(whole) || exemptWord(t.toLowerCase()) || (whole.includes("-") && /(ed|ing)$/.test(last));
 }
 
 const SENTENCE_SPLIT = /(?<=[.!?;:])(?<!\be\.g\.|\bi\.e\.|\bvs\.|\betc\.)\s+/i;
@@ -90,23 +104,23 @@ const SENTENCE_SPLIT = /(?<=[.!?;:])(?<!\be\.g\.|\bi\.e\.|\bvs\.|\betc\.)\s+/i;
 /** Returns the numbers and proper nouns in `text` that do not appear in `sources` (numbers first, then nouns). */
 export function scanClaims(text: string, sources: string[]): string[] {
   const joined = sources.join("\n");
-  const sourced = new Set(numbersIn(joined).map((n) => n.key));
+  const sourced = new Set(numbersIn(joined, true).map((n) => n.key));
   const numbers: string[] = [];
   const nouns: string[] = [];
   const addTo = (list: string[], t: string) => {
     if (!list.includes(t)) list.push(t);
   };
 
-  for (const n of numbersIn(text)) if (!sourced.has(n.key)) addTo(numbers, n.raw);
+  for (const n of numbersIn(text, false)) if (!sourced.has(n.key)) addTo(numbers, n.raw);
 
   for (const sentence of text.split(SENTENCE_SPLIT)) {
     const tokens = sentence.match(TOKEN_RE) ?? [];
     tokens.forEach((raw, i) => {
       const t = raw.replace(/\.+$/, "");
       if (!isProperNoun(t) || isGeneric(t)) return;
-      if (i === 0 && exemptAtSentenceStart(t)) return;
+      if (i === 0 && exemptAtSentenceStart(sentence, t)) return;
       if (!hasToken(joined, t, t.length <= 3)) addTo(nouns, t);
     });
   }
-  return [...numbers.filter((n) => !nouns.some((p) => p.includes(n))), ...nouns];
+  return [...numbers, ...nouns];
 }
