@@ -58,7 +58,6 @@ async function produceVersion(o: {
   entries: EntryLike[];
   template: TemplateMeta;
   filename: string;
-  timeoutMs: number;
   targetPages: number;
   meta: Record<string, unknown>;
   /** Raw snapshot to copy verbatim (render); otherwise one is built from `entries`. */
@@ -68,7 +67,7 @@ async function produceVersion(o: {
   o.onProgress?.("compiling…");
   const resume = resolveResume(o.content, o.entries);
   const tex = renderResume(o.template, { about: o.about, resume, job: { company: o.app.meta.company, role: o.app.meta.role } });
-  const { pdf, pages } = await compileTex(tex, o.template.engine, { timeoutMs: o.timeoutMs });
+  const { pdf, pages } = await compileTex(tex, o.template.engine);
   const { dir, version } = nextVersionDir(o.app, "resume");
   const pdfName = sendReadyName(o.filename, o.about, "Resume", o.app.meta.company);
   writeFileSync(join(dir, "resume.json"), json(o.content));
@@ -165,7 +164,7 @@ export async function applyJob(opts: {
   let v;
   try {
     v = await produceVersion({
-      app, about: profile.about, content, entries: payload.entries, template, filename: config.filename, timeoutMs,
+      app, about: profile.about, content, entries: payload.entries, template, filename: config.filename,
       targetPages: config.pages, onProgress, meta: { harness, run: runDir },
     });
   } catch (e) {
@@ -218,7 +217,7 @@ export async function renderApplication(opts: {
   const snapshot = readFileSync(snapshotPath, "utf8");
   const old = existsSync(join(src.dir, "meta.json")) ? JSON.parse(readFileSync(join(src.dir, "meta.json"), "utf8")) : {};
   const v = await produceVersion({
-    app, about, content, entries, snapshot, template, filename: config.filename, timeoutMs: config.timeout_minutes * 60_000,
+    app, about, content, entries, snapshot, template, filename: config.filename,
     targetPages: config.pages, onProgress: opts.onProgress,
     meta: { harness: old.harness, run: old.run, rendered_from: src.version },
   });

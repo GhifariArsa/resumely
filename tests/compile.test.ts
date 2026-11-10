@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
-import { compileTex } from "../src/render/compile";
+import { compileTex, parseFill } from "../src/render/compile";
 import { renderResume, findTemplate, builtinTemplatesDir } from "../src/render/render";
 import { loadProfile } from "../src/profile/load";
 import { ResumeContent } from "../src/pipeline/schemas";
@@ -74,3 +74,17 @@ test.skipIf(skip)("every character validation accepts compiles under the classic
   const r = await compileTex(renderResume(t, { about, resume: c }), t.engine);
   expect(r.pages).toBeGreaterThanOrEqual(1);
 }, 150000);
+
+test.skipIf(skip)("fill ratio is in (0,1] for the fixture", async () => {
+  const r = await compileTex(renderResume(t, { about, resume }), t.engine);
+  expect(r.fill).not.toBeNull();
+  expect(r.fill!).toBeGreaterThan(0);
+  expect(r.fill!).toBeLessThanOrEqual(1);
+}, 150000);
+
+test("parseFill parses pt values, clamps, and rejects bad input", () => {
+  expect(parseFill("x RESUMELY-FILL 350.0pt 700.0pt y")).toBeCloseTo(0.5);
+  expect(parseFill("RESUMELY-FILL 900.5pt 700.0pt")).toBe(1);
+  expect(parseFill("RESUMELY-FILL 5pt 0.0pt")).toBeNull();
+  expect(parseFill("no marker")).toBeNull();
+});
