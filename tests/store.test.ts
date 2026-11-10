@@ -1,9 +1,11 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, existsSync, readFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
-import { slugify, sendReadyName, createApplication, listApplications, findApplication, nextVersionDir, latestVersion, findDuplicate, normaliseJobUrl } from "../src/application/store";
+import { slugify, sendReadyName, createApplication, listApplications, findApplication, nextVersionDir, latestVersion, findDuplicate, normaliseJobUrl, addNote } from "../src/application/store";
+import { exportApplication, setStatus } from "../src/application/tracking";
+import { formatApplicationList } from "../src/pipeline/apply";
 import { slugify as slugify2 } from "../src/application/slug";
 import { UserError } from "../src/errors";
 import type { ParsedJob } from "../src/pipeline/schemas";
@@ -101,10 +103,6 @@ test("findDuplicate matches URLs after normalisation", () => {
   expect(findDuplicate(d, { url: "https://jobs.example.com/acme/124", company: "", role: "" })).toBeNull();
 });
 
-import { writeFileSync, readdirSync } from "node:fs";
-import { addNote, exportApplication, setStatus } from "../src/application/store";
-import { formatApplicationList } from "../src/pipeline/apply";
-
 function appWithVersions(o: { resume?: boolean; cover?: boolean } = { resume: true, cover: true }) {
   const dir = tmp();
   const app = createApplication(dir, job("Acme", "Dev"), src, new Date("2026-03-01T10:00:00Z"));
@@ -156,7 +154,7 @@ test("exportApplication copies resume and cover PDFs and refuses overwrites", ()
   const { app } = appWithVersions();
   const to = tmp();
   const paths = exportApplication(app, { to });
-  expect(paths.map((p) => p.split("/").pop()).sort()).toEqual(["cover-letter.pdf", "resume.pdf"]);
+  expect(paths.map((p: string) => p.split("/").pop()).sort()).toEqual(["cover-letter.pdf", "resume.pdf"]);
   expect(readdirSync(to).length).toBe(2);
   expect(() => exportApplication(app, { to })).toThrow(/already exists.*resume\.pdf|resume\.pdf.*already exists/);
 });

@@ -244,6 +244,24 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     expect(listApplications(layout(root).applications).length).toBe(2);
   }, 120000);
 
+  test("into adds a version to the given application without duplicate detection or a new app", async () => {
+    script(full());
+    const first = await run();
+    script(full({ parse: [{ "out/parsed-job.json": { ...parsedJob, company: "Other Co", role: "Data Engineer" } }] }));
+    const other = await run({ onDuplicate: async () => "new" });
+    expect(other.app.slug).not.toBe(first.app.slug);
+    expect(listApplications(layout(root).applications).length).toBe(2);
+
+    script(full());
+    const r = await run({ into: other.app, cover: false, review: false });
+    expect(r.app.slug).toBe(other.app.slug);
+    expect(r.resume?.version).toBe(2);
+    expect(calls()).not.toContain("parse");
+    expect(existsSync(join(other.app.dir, "job/raw-2.md"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(other.app.dir, "job/parsed.json"), "utf8")).company).toBe("Other Co");
+    expect(listApplications(layout(root).applications).length).toBe(2);
+  }, 120000);
+
   test("duplicate URL is caught before the parse; 'existing' reuses the app's parsed job", async () => {
     const input = { ...(await job()), kind: "url" as const, url: "https://jobs.test/42" };
     script(full());

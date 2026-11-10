@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { ZodType } from "zod";
 import { latestVersion, nextVersionDir, sendReadyName, type Application } from "../application/store";
@@ -132,4 +132,27 @@ export function pickVersion(app: Application, kind: DocumentKind, version?: numb
   const dir = join(app.dir, kind, `v${version}`);
   if (!existsSync(dir)) throw new UserError(`${app.slug} has no ${label} v${version}`);
   return { dir, version };
+}
+
+/** Parsed JSON at `path`, or `fallback` when missing or unreadable. */
+export function readJsonOr<T>(path: string, fallback: T): T {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/** The send-ready PDF in a version dir. */
+export function pdfIn(dir: string): string {
+  const f = readdirSync(dir).find((n) => n.endsWith(".pdf"));
+  if (!f) throw new UserError(`No PDF in ${dir}`);
+  return join(dir, f);
+}
+
+/** Why a saved version is not ready ("see meta.json" when the checks are unreadable). */
+export function savedNotReadyReasons(dir: string): string {
+  const checks = readJsonOr<HardFacts | null>(join(dir, "checks.json"), null);
+  const reasons = checks?.ats ? notReadyReasons(checks) : [];
+  return reasons.join("; ") || "see meta.json";
 }

@@ -18,6 +18,11 @@ const script = {
   "cover-write": [{ "out/cover-letter.json": load("cover-letter.json") }],
   "cover-review-1": [{ "out/review.json": { ...pass, scores: { ...pass.scores, voice: 4 }, templated: false } }],
 };
+const longResume = structuredClone(load("resume-content.json"));
+{
+  const b = longResume.sections[0].items[0].bullets;
+  for (let i = 0; i < 40; i++) b.push({ ...b[0] });
+}
 const jobFile = join(fx, "jobs/backend.md");
 
 let root: string;
@@ -39,6 +44,7 @@ async function cli(...args: string[]) {
   const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   return { stdout, stderr, code };
 }
+const setScript = (over: Record<string, unknown>) => writeFileSync(join(root, "script.json"), JSON.stringify({ ...script, ...over }));
 const apps = () => readdirSync(layout(root).applications);
 
 test("--review on a non-TTY exits 1", async () => {
@@ -54,6 +60,43 @@ test("status rejects an unknown status", async () => {
 });
 
 describe.skipIf(!hasLatex)("apply flow", () => {
+  test("--into adds a version to the named application even when the posting does not match", async () => {
+    expect((await cli("apply", jobFile, "--no-open")).code).toBe(0);
+    const first = apps()[0]!;
+    const otherJob = join(root, "other.md");
+    writeFileSync(otherJob, "# Data Engineer at Other Co\nWe need Python.\n");
+    setScript({ parse: [{ "out/parsed-job.json": { ...parsedJob, company: "Other Co", role: "Data Engineer" } }] });
+    expect((await cli("apply", otherJob, "--no-open", "--no-cover")).code).toBe(0);
+    expect(apps().length).toBe(2);
+    const other = apps().find((a) => a !== first)!;
+
+    const r = await cli("apply", jobFile, "--into", other, "--no-open", "--no-cover");
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("done: resume v2");
+    expect(apps().length).toBe(2);
+    expect(readdirSync(join(layout(root).applications, other, "resume")).sort()).toEqual(["v1", "v2"]);
+    expect(readdirSync(join(layout(root).applications, first, "resume"))).toEqual(["v1"]);
+    expect(readdirSync(join(layout(root).applications, other, "job"))).toContain("raw-2.md");
+  }, 120_000);
+
+  test("a not-ready document exits 1; status applied needs --force; ls --company filters", async () => {
+    setScript({ "resume-write": [{ "out/resume.json": longResume }] });
+    const r = await cli("apply", jobFile, "--no-open", "--no-cover");
+    expect(r.stderr).toContain("(not ready:");
+    expect(r.code).toBe(1);
+    const slug = apps()[0]!;
+    const refused = await cli("status", slug, "applied");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("resume v1 is not ready");
+    expect(refused.stderr).toContain("hint: Fix and re-run, or pass --force");
+    const forced = await cli("status", slug, "applied", "--force");
+    expect(forced.code).toBe(0);
+    const ls = await cli("ls", "--company", "atlas");
+    expect(ls.stdout).toContain("v1!");
+    expect(ls.stdout).toContain("r1");
+    expect((await cli("ls", "--company", "nomatch")).stdout).toContain("No applications match");
+  }, 120_000);
+
   test("apply, duplicate guard, --new, status, ls, note, export", async () => {
     const first = await cli("apply", jobFile, "--no-open");
     expect(first.stderr).toContain("done: resume v1");

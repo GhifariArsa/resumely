@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApplication, findDuplicate, latestVersion, saveExtraRaw } from "../application/store";
 import type { Application } from "../application/store";
@@ -18,7 +18,7 @@ import { refine, type DocumentKind, type RefineResult } from "./refine";
 import { runResearch, type ResearchStatus } from "./research";
 import { jsonSchemaFor, type CompanyResearch, type ParsedJob, type ResumeContent, type Review } from "./schemas";
 import { validateParsedJob } from "./validate";
-import { citedFacts, coverEntryIds, coverTrace, json, notReadyReasons, pickVersion, resumeEntryIds, resumeTrace, saveVersion, snapshotOf, versionMeta, isReady } from "./version";
+import { citedFacts, coverEntryIds, coverTrace, json, notReadyReasons, pdfIn, pickVersion, readJsonOr, resumeEntryIds, resumeTrace, saveVersion, snapshotOf, versionMeta, isReady } from "./version";
 import { resolveResume } from "./resolve";
 import { createRunWorkspace, newRunId, runAgentStep } from "./workspace";
 
@@ -51,6 +51,8 @@ export type ApplyOptions = {
   review?: boolean;
   /** After the parse: resolve false to stop (the application is kept). */
   pause?: (job: ParsedJob, likelyGaps: string[]) => Promise<boolean>;
+  /** Add versions to this application unconditionally (skips duplicate detection and creation). */
+  into?: Application;
   onDuplicate?: (existing: Application) => Promise<"existing" | "new" | "abort">;
   onProgress?: (m: string) => void;
 };
@@ -79,13 +81,19 @@ async function intake(o: ApplyOptions, appsDir: string, parse: () => Promise<Par
   };
   let asked = false;
   let reuse: Application | null = null;
+  const into = o.into;
+  const guard = (dup: Application): Application => {
+    if (dup.slug !== into!.slug) throw new UserError(`--into ${into!.slug} doesn't match the earlier application ${dup.slug}`, `Use --into ${dup.slug}, or --new for a separate application`);
+    return into!;
+  };
   const byUrl = o.input.url ? findDuplicate(appsDir, { url: o.input.url, company: "", role: "" }) : null;
   if (byUrl) {
     asked = true;
-    reuse = await decide(byUrl);
+    reuse = into ? guard(byUrl) : await decide(byUrl);
   }
+  if (into && !reuse) reuse = into;
   const job = (reuse && loadParsed(reuse)) || (await parse());
-  if (!asked) {
+  if (!asked && !reuse) {
     const byRole = findDuplicate(appsDir, { company: job.company, role: job.role });
     if (byRole) reuse = await decide(byRole);
   }
@@ -229,12 +237,6 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
 /** The PDF `apply` opens: the resume, or the cover letter when only it was produced. */
 export const pdfToOpen = (r: ApplyResult): string | undefined => r.resume?.pdfPath ?? r.cover?.pdfPath;
 
-export function pdfIn(dir: string): string {
-  const f = readdirSync(dir).find((n) => n.endsWith(".pdf"));
-  if (!f) throw new UserError(`No PDF in ${dir}`);
-  return join(dir, f);
-}
-
 export function formatApplicationList(apps: Application[], filter: { status?: string; company?: string } = {}): string {
   if (apps.length === 0) return "No applications yet. Try: resumely apply --clip";
   const q = filter.company?.toLowerCase();
@@ -244,7 +246,7 @@ export function formatApplicationList(apps: Application[], filter: { status?: st
   const ver = (a: Application, kind: DocumentKind) => {
     const v = latestVersion(a, kind);
     if (!v) return "-";
-    return `v${v.version}${readJsonFile(join(v.dir, "meta.json"))?.ready === false ? "!" : ""}`;
+    return `v${v.version}${readJsonOr<{ ready?: boolean }>(join(v.dir, "meta.json"), {}).ready === false ? "!" : ""}`;
   };
   for (const a of shown) {
     const s = a.meta.sent;
@@ -253,14 +255,6 @@ export function formatApplicationList(apps: Application[], filter: { status?: st
   }
   const w = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)));
   return rows.map((r) => r.map((c, i) => c.padEnd(w[i]!)).join("  ").trimEnd()).join("\n");
-}
-
-function readJsonFile(path: string): { ready?: boolean } | null {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return null;
-  }
 }
 
 export function resolveOpenTarget(app: Application, version?: number, kind: DocumentKind = "resume"): string {

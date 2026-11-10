@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
@@ -10,9 +10,10 @@ import { formatEntry, formatProfileContext, formatProfileTree } from "./profile/
 import { initDataRoot } from "./commands/init";
 import { openFile } from "./commands/open";
 import { resolveJobInput } from "./job/intake";
-import { addNote, exportApplication, findApplication, listApplications, setStatus } from "./application/store";
+import { addNote, findApplication, listApplications } from "./application/store";
+import { exportApplication, setStatus } from "./application/tracking";
 import { confirmParsed, isInteractive, promptDuplicate } from "./commands/prompt";
-import { notReadyReasons } from "./pipeline/version";
+import { savedNotReadyReasons } from "./pipeline/version";
 import { applyJob, type DocResult, formatApplicationList, renderApplication, resolveOpenTarget } from "./pipeline/apply";
 
 const program = new Command();
@@ -71,20 +72,10 @@ function dataRoot() {
 
 const STATUSES = ["drafted", "applied", "interviewing", "rejected", "offer"] as const;
 
-function readJson(path: string): any {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
 function doneLine(label: string, kind: "resume" | "cover-letter", appDir: string, d: DocResult): string {
   const base = `done: ${label} v${d.version} → ${d.pdfPath}`;
   if (d.ready) return `${base} (ready)`;
-  const checks = readJson(join(appDir, kind, `v${d.version}`, "checks.json"));
-  const reasons = checks?.ats ? notReadyReasons(checks) : [];
-  return `${base} (not ready: ${reasons.join("; ") || "see meta.json"})`;
+  return `${base} (not ready: ${savedNotReadyReasons(join(appDir, kind, `v${d.version}`))})`;
 }
 
 program
@@ -118,16 +109,8 @@ program
       root, input: src, harness: o.harness, template: o.template, open: o.open, onProgress: progress,
       mode: o.stretch ? "stretch" : "truthful", pages, cover: o.cover, research: o.research, review: o.review !== false,
       pause: o.review === true ? confirmParsed : undefined,
-      onDuplicate: into
-        ? async (existing) => {
-            if (existing.slug !== into.slug) throw new UserError(`--into ${into.slug} doesn't match the earlier application ${existing.slug}`, `Use --into ${existing.slug}, or --new for a separate application`);
-            return "existing";
-          }
-        : o.new
-          ? async () => "new"
-          : interactive
-            ? promptDuplicate
-            : undefined,
+      into,
+      onDuplicate: o.new ? async () => "new" : interactive ? promptDuplicate : undefined,
     });
     if (r.resume) console.error(doneLine("resume", "resume", r.app.dir, r.resume));
     if (r.cover) console.error(doneLine("cover letter", "cover-letter", r.app.dir, r.cover));
