@@ -25,3 +25,4 @@ Write `out/resume.json`. It must be valid JSON that conforms to `resume.schema.j
 - `skills`: group the candidate's skills into short categories, putting the ones the job asks for first. Every listed skill must appear verbatim in the profile, either in `skills` or in an entry's `skills`.
 - Use plain text. Accented letters and the typographic dashes and quotes (– — ‘ ’ “ ”) are fine; avoid emoji and other symbols.
 - Bullets start with a strong past-tense verb (present tense for the current role), use no first person, and keep numbers exactly as in the profile.
+- Every number and every product, company or technology name in your text must appear in the entries you cite (numbers keep their units).

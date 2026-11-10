@@ -59,11 +59,15 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful" 
       ...profileSkillText,
       ...ids.flatMap((id) => {
         const e = byId.get(id);
-        return e ? [e.title, e.org ?? "", e.body, ...e.skills, ...e.tags] : [];
+        if (!e) return [];
+        const years = [e.start, e.end].flatMap((d) => (d && /^\d{4}/.test(d) ? [d.slice(0, 4)] : []));
+        return [e.title, e.org ?? "", e.body, ...e.skills, ...e.tags, ...years];
       }),
     ];
     for (const tok of scanClaims(text, sources)) {
-      (mode === "truthful" ? errors : warnings).push(`${where}: "${tok}" is not supported by the cited entries`);
+      // Stretch never allows new numeric metrics: only unsourced proper nouns downgrade to warnings.
+      const isNumber = /^[$\d]/.test(tok);
+      (mode === "truthful" || isNumber ? errors : warnings).push(`${where}: "${tok}" is not supported by the cited entries`);
     }
   };
   const checkIds = (where: string, ids: string[]) => {
@@ -105,7 +109,7 @@ export function validateResume(raw: unknown, profile: Profile, mode: "truthful" 
     checkChars(`skills[${i}].category`, group.category);
     group.items.forEach((v, j) => {
       checkChars(`skills[${i}].items[${j}]`, v);
-      const inBody = mode === "stretch" && profile.entries.some((e) => hasToken(e.body, v.trim()));
+      const inBody = mode === "stretch" && profile.entries.some((e) => hasToken(e.body, v.trim(), true));
       if (!skills.has(normaliseSkill(v)) && !inBody) errors.push(`skills[${i}].items[${j}]: "${v}" is not in your profile`);
     });
   });

@@ -131,7 +131,7 @@ test("unsupported characters are rejected with code point; mapped symbols pass",
     'skills[0].category: unsupported character "✨" (U+2728)',
   ]);
   const d = fixture();
-  d.sections[0].items[0].bullets[0].text = "Grew revenue ≈ 2× — “fast” • the team’s…";
+  d.sections[0].items[0].bullets[0].text = "Grew revenue ≈ 4× — “fast” • the team’s…";
   expect(validateResume(d, profile, "truthful").ok).toBe(true);
 });
 
@@ -163,5 +163,24 @@ test("body-only skill accepted in stretch, rejected in truthful", () => {
   expect(errs(validateResume(c, profile, "truthful"))).toContain('skills[2].items[4]: "Kubernetes" is not in your profile');
   expect(validateResume(c, profile, "stretch").ok).toBe(true);
   c.skills[2].items.push("Haskell");
+  expect(validateResume(c, profile, "stretch").ok).toBe(false);
+});
+
+test("stretch keeps unsourced numbers as errors", () => {
+  const c = fixture();
+  c.sections[0].items[0].bullets[0].text = "Increased conversion 30%.";
+  const r = validateResume(c, profile, "stretch");
+  expect(errs(r)).toContain('sections[0].items[0].bullets[0]: "30%" is not supported by the cited entries');
+});
+
+test("entry start year sources a year claim", () => {
+  const c = fixture();
+  c.sections[0].items[0].bullets[0].text = "Owned billing since 2023.";
+  expect(validateResume(c, profile, "truthful").ok).toBe(true);
+});
+
+test("stretch body skill must match case-sensitively", () => {
+  const c = fixture();
+  c.skills[2].items.push("kubernetes");
   expect(validateResume(c, profile, "stretch").ok).toBe(false);
 });
