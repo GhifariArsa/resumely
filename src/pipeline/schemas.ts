@@ -75,6 +75,16 @@ export const Review = z.object({
 });
 export type Review = z.infer<typeof Review>;
 
+/** Review with the cover-letter fields required; used for the cover reviewer's `review.schema.json`. */
+export const CoverReview = Review.extend({
+  scores: Review.shape.scores.extend({ voice: Score }),
+  templated: z.boolean(),
+});
+
+export function reviewSchemaFor(kind: "resume" | "cover-letter"): object {
+  return z.toJSONSchema(kind === "cover-letter" ? CoverReview : Review) as object;
+}
+
 export function jsonSchemaFor(kind: "parsed-job" | "resume" | "company" | "cover-letter"): object {
   return z.toJSONSchema(kind === "parsed-job" ? ParsedJob : kind === "company" ? CompanyResearch : kind === "cover-letter" ? CoverLetterContent : ResumeContent) as object;
 }

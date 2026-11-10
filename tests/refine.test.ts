@@ -6,7 +6,7 @@ import type { HardFacts } from "../src/checks/facts";
 import { UserError } from "../src/errors";
 import { loadProfile } from "../src/profile/load";
 import { refine, revisionInstructions, writeRevisionFiles, type Produced } from "../src/pipeline/refine";
-import type { Review, ResumeContent } from "../src/pipeline/schemas";
+import { reviewSchemaFor, type Review, type ResumeContent } from "../src/pipeline/schemas";
 import { validateResume, validateReview } from "../src/pipeline/validate";
 import { runAgentStep } from "../src/pipeline/workspace";
 
@@ -217,8 +217,7 @@ describe("refine", () => {
     expect(r.review).toEqual(askKafka);
     // the kept value is the one the review judged
     expect(r.reviewedFinal).toBe(true);
-    expect(r.warnings.length).toBe(1);
-    expect(r.warnings[0]).toStartWith("revision rejected: Agent output invalid after 3 attempts");
+    expect(r.warnings).toEqual([`revision rejected: Agent output invalid after 3 attempts (logs: ${join(runDir(), "resume-revise-1")})`]);
     expect(readFileSync(join(runDir(), "resume-revise-1", "errors.md"), "utf8")).toContain('"Kafka" is not in your profile');
   });
 
@@ -245,6 +244,9 @@ describe("refine", () => {
     expect(r.warnings.length).toBe(1);
     expect(r.warnings[0]).toStartWith("review failed: ");
     expect(r.warnings[0]).toEndWith(`(logs: ${join(runDir(), "resume-review-2")})`);
+    // the harness hint is kept, the workspace is named once
+    expect(r.warnings[0]!.match(/\(logs: /g)!.length).toBe(1);
+    expect(r.warnings[0]).toMatch(/^review failed: .+ \(.+\) \(logs: /);
   });
 
   test("a failure of the initial write propagates", async () => {
@@ -274,7 +276,7 @@ describe("refine", () => {
     expect(r.value).toEqual(resume);
     expect(r.produced.text).toBe("TEXT 1");
     expect(r.reviewedFinal).toBe(true);
-    expect(r.warnings).toEqual(["revision failed to compile: LaTeX compile failed"]);
+    expect(r.warnings).toEqual(["revision failed to compile: LaTeX compile failed (see log)"]);
   });
 
   test("non-UserError from produce propagates", async () => {
@@ -285,6 +287,71 @@ describe("refine", () => {
       throw new TypeError("boom");
     };
     await expect(go({ produce })).rejects.toThrow("boom");
+  });
+
+  test("absent must-haves are red flags, not low scores: a high-scoring pass stops after review-1", async () => {
+    const absent = facts({ keywords: { present: ["Go", "PostgreSQL"], missed_in_profile: [], absent: ["Rust", "Kafka"] } });
+    const highPass: Review = { ...pass, scores: { relevance: 4, keywords: 4, impact: 4, formatting: 5 }, red_flags: ["No Rust or Kafka, both required."] };
+    expect(validateReview(highPass, "resume").ok).toBe(true);
+    script({ "resume-write": [out(resume)], "resume-review-1": [rev(highPass)] });
+    const r = await go({ produce: producer(() => absent).produce });
+    expect(calls()).toEqual(["resume-write", "resume-review-1"]);
+    expect(r.reviewedFinal).toBe(true);
+    expect(r.warnings).toEqual([]);
+    const ws = join(runDir(), "resume-review-1");
+    expect(JSON.parse(readFileSync(join(ws, "hard-facts.json"), "utf8")).keywords.absent).toEqual(["Rust", "Kafka"]);
+    const instr = readFileSync(join(ws, "instructions.md"), "utf8");
+    expect(instr).toContain("`absent` keywords and must-haves the candidate lacks go in `red_flags` and never lower any score");
+    expect(instr).toContain("missed_in_profile");
+  });
+
+  test("cover-letter revise path: [cover-write, cover-review-1, cover-revise-1, cover-review-2]; cover schema requires voice/templated", async () => {
+    const coverRevise: Review = { ...revise, scores: { ...revise.scores, voice: 2 }, templated: true };
+    const coverPass: Review = { ...pass, scores: { ...pass.scores, voice: 4 }, templated: false };
+    script({
+      "cover-write": [{ "out/letter.json": { text: "v1" } }],
+      "cover-review-1": [rev(coverRevise)],
+      "cover-revise-1": [{ "out/letter.json": { text: "v2" } }],
+      "cover-review-2": [rev(coverPass)],
+    });
+    const seen: string[] = [];
+    const r = await refine<{ text: string }>({
+      kind: "cover-letter",
+      runsDir: join(dir, "runs"),
+      runId: "r1",
+      adapter,
+      name: "fake",
+      timeoutMs: 20000,
+      maxRounds: 2,
+      write: async (ws, revision) => {
+        let instructions = "w";
+        if (revision) {
+          writeRevisionFiles(ws, revision);
+          instructions += "\n\n" + (await revisionInstructions());
+        }
+        return runAgentStep({ adapter, name: "fake", workspace: ws, instructions, files: {}, outFile: "letter.json", validate: (raw) => ({ ok: true, value: raw as { text: string }, warnings: [] }), timeoutMs: 20000 });
+      },
+      produce: async (v) => {
+        seen.push(v.text);
+        return { tex: "", pdf: new Uint8Array([1]), pages: 1, fill: null, facts: facts(), text: v.text };
+      },
+      reviewFiles: { "job.md": "JD" },
+    });
+    expect(calls()).toEqual(["cover-write", "cover-review-1", "cover-revise-1", "cover-review-2"]);
+    expect(r.value).toEqual({ text: "v2" });
+    expect(r.review).toEqual(coverPass);
+    expect(r.reviewedFinal).toBe(true);
+    expect(seen).toEqual(["v1", "v2"]);
+    const vws = join(runDir(), "cover-revise-1");
+    expect(JSON.parse(readFileSync(join(vws, "previous.json"), "utf8"))).toEqual({ text: "v1" });
+    expect(JSON.parse(readFileSync(join(vws, "review.json"), "utf8"))).toEqual(coverRevise);
+    expect(readFileSync(join(runDir(), "cover-review-2", "document.txt"), "utf8")).toBe("v2");
+    const schema = JSON.parse(readFileSync(join(runDir(), "cover-review-1", "review.schema.json"), "utf8"));
+    expect(schema.required).toContain("templated");
+    expect(schema.properties.scores.required).toContain("voice");
+    const resumeSchema = reviewSchemaFor("resume") as { required: string[]; properties: { scores: { required: string[] } } };
+    expect(resumeSchema.required).not.toContain("templated");
+    expect(resumeSchema.properties.scores.required).not.toContain("voice");
   });
 
   test("cover-letter kind uses cover-* workspaces and the cover reviewer prompt", async () => {
@@ -376,6 +443,8 @@ describe("validateReview", () => {
 
   test("pass with a score of 3 or lower is inconsistent", () => {
     expect(errs({ ...pass, scores: { ...pass.scores, keywords: 3 } }).join()).toContain("verdict");
+    // voice is only a cover-letter score
+    expect(errs({ ...pass, scores: { ...pass.scores, voice: 1 } })).toEqual([]);
   });
 
   test("cover-letter reviews require voice and templated; templated must revise", () => {

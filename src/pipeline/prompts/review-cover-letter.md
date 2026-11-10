@@ -20,14 +20,23 @@ Write `out/review.json`. It must be valid JSON that conforms to `review.schema.j
 
 ## Scores
 Integers from 1 to 5: 5 = strong, 4 = good, 3 = acceptable but weak, 2 = poor, 1 = fails.
-- `relevance`: the evidence chosen matches what this role needs.
-- `keywords`: the posting's important terms appear naturally, not stuffed.
+
+Score only what a revision can change. `keywords` is scored on how well present + `missed_in_profile` terms are surfaced; `absent` keywords and must-haves the candidate lacks go in `red_flags` and never lower any score. `relevance` scores the selection, ordering and emphasis of what's on the page, not whether the candidate has the experience.
+
+- `relevance`: the selection, ordering and emphasis of the evidence in the letter for this role.
+- `keywords`: how well the `present` and `missed_in_profile` terms from `hard-facts.json` are surfaced: naturally, not stuffed. `absent` terms never lower this score.
 - `impact`: the evidence is concrete (what was done, for whom, with what result) rather than adjectives.
 - `formatting`: one page, about 250-350 words, clear paragraphs, a proper greeting and sign-off, and the ATS check passes.
-- `voice`: reads like a real person wrote it for this company; 1 = boilerplate.
+- `voice`: reads like one specific person wrote it for this company: plain words, varied sentences, specifics over adjectives; 1 = boilerplate.
 
 ## templated
-`true` if the letter reads as generic or AI-written: it could be sent to another company by swapping the name, it leans on stock phrases ("I am excited to apply", "proven track record", "I believe I would be a great fit"), its sentences share one rhythm, or it praises the company instead of saying something specific. Otherwise `false`.
+`true` if any of these concrete tests holds. Otherwise `false`.
+- Name-swappable sentences: the opening or close would still read fine if another company's name were swapped in.
+- Stock phrases: "I am excited to apply", "proven track record", "I believe I would be a great fit" and the like.
+- Uniform sentence rhythm: most sentences share one length and shape.
+- Praise without specifics: it compliments the company instead of saying something specific about it or the role.
+
+Name the test that failed in `red_flags`.
 
 ## red_flags
 Short, specific things that would make a recruiter hesitate: a generic opening, a must-have requirement that is missing, claims with no evidence, overflow, filler, flattery. If the role needs X and it's absent, note it as a red flag, not a request. Treat each `fabrication_warnings` item as a red flag. Use `[]` when there are none.
@@ -39,7 +48,7 @@ Concrete revisions the writer can make. Each request points at a paragraph (by n
 
 ## Verdict
 - `revise` when any score is 3 or lower, when `templated` is true, when `overflow` is true, or on a red flag that matters for this role and that a revision can fix.
-- Otherwise `pass`. A missing requirement the candidate can't show is a red flag, but on its own it is not a reason to revise.
+- Otherwise `pass`. A missing requirement or `absent` keyword is a red flag only: it never lowers a score and is never a reason to revise.
 - A templated letter must be `revise`. `revise` needs at least one request. A `pass` with any score of 3 or lower is invalid.
 
 Output strictly per the schema: `impression` (your first impression in 1-3 plain sentences), `scores` (`relevance`, `keywords`, `impact`, `formatting`, `voice`), `red_flags`, `requests`, `verdict`, `templated`. All are required for a cover letter.

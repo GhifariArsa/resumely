@@ -1,10 +1,9 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { z } from "zod";
 import type { HardFacts } from "../checks/facts";
 import type { AdapterConfig } from "../config";
 import { UserError } from "../errors";
-import { Review } from "./schemas";
+import { reviewSchemaFor, type Review } from "./schemas";
 import { validateReview } from "./validate";
 import { createRunWorkspace, runAgentStep } from "./workspace";
 
@@ -45,6 +44,14 @@ const PROMPTS = join(import.meta.dir, "prompts");
 const prompt = (file: string) => Bun.file(join(PROMPTS, file)).text();
 const json = (v: unknown) => JSON.stringify(v, null, 2) + "\n";
 
+/** "<message> (<hint>)", dropping the parts of the hint that only repeat the workspace path (added separately). */
+function describe(e: UserError, ws?: string): string {
+  let hint = e.hint ?? "";
+  if (ws) hint = hint.replace(`(logs: ${ws})`, "").replace(`Inspect ${ws}`, "");
+  hint = hint.trim();
+  return hint ? `${e.message} (${hint})` : e.message;
+}
+
 /** Writer instructions appended on a revision. */
 export function revisionInstructions(): Promise<string> {
   return prompt("revision.md");
@@ -77,7 +84,7 @@ export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
   let rounds = 0;
 
   const reviewPrompt = o.maxRounds > 0 ? await prompt(o.kind === "resume" ? "review-resume.md" : "review-cover-letter.md") : "";
-  const reviewSchema = json(z.toJSONSchema(Review));
+  const reviewSchema = json(reviewSchemaFor(o.kind));
 
   for (let r = 1; r <= o.maxRounds; r++) {
     rounds = r;
@@ -105,7 +112,7 @@ export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
       reviewedFinal = false;
-      warnings.push(`review failed: ${e.message} (logs: ${rws})`);
+      warnings.push(`review failed: ${describe(e, rws)} (logs: ${rws})`);
       break;
     }
     if (review.verdict === "pass" && !produced.facts.overflow) break;
@@ -117,7 +124,7 @@ export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
       next = await o.write(vws, { previous: value, review, facts: produced.facts });
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
-      warnings.push(`revision rejected: ${e.message} (logs: ${vws})`);
+      warnings.push(`revision rejected: ${describe(e, vws)} (logs: ${vws})`);
       break;
     }
     let nextProduced: Produced;
@@ -125,7 +132,7 @@ export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
       nextProduced = await o.produce(next.value);
     } catch (e) {
       if (!(e instanceof UserError)) throw e;
-      warnings.push(`revision failed to compile: ${e.message}`);
+      warnings.push(`revision failed to compile: ${describe(e)}`);
       break;
     }
     value = next.value;

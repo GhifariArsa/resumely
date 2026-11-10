@@ -231,7 +231,8 @@ export function validateReview(raw: unknown, kind: "resume" | "cover-letter"): V
     if (value.templated === undefined) errors.push("templated: required for a cover letter review");
     if (value.templated === true && value.verdict === "pass") errors.push('verdict: a templated letter must be "revise"');
   }
-  const low = Object.entries(value.scores).filter(([, n]) => n !== undefined && n <= 3).map(([k]) => k);
+  const scored = Object.entries(value.scores).filter(([k]) => kind === "cover-letter" || k !== "voice");
+  const low = scored.filter(([, n]) => n !== undefined && n <= 3).map(([k]) => k);
   if (value.verdict === "pass" && low.length) errors.push(`verdict: "pass" with ${low.join(", ")} scored 3 or lower; use "revise"`);
   return errors.length ? { ok: false, errors } : { ok: true, value, warnings: [] };
 }
