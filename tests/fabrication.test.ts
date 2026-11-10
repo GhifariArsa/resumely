@@ -98,3 +98,24 @@ test("x and multiplication sign are the same unit; x2 is a number", () => {
   expect(scanClaims("Grew 2x", ["2×"])).toEqual([]);
   expect(scanClaims("Grew x2", none)).toEqual(["2x"]);
 });
+
+test("hyphenated openers: tech prefixes are still checked", () => {
+  expect(scanClaims("Kafka-based pipelines for billing", none)).toEqual(["Kafka"]);
+  expect(scanClaims("React-powered dashboard", none)).toEqual(["React"]);
+  expect(scanClaims("Kubernetes-hosted services", none)).toEqual(["Kubernetes"]);
+  for (const t of ["Co-led the team", "Re-architected billing", "End-to-end tests", "Co-founded a startup", "Re-wrote search", "Co-ran reviews"]) {
+    expect(scanClaims(t, none)).toEqual([]);
+  }
+  expect(scanClaims("Re-wrote the ingestion service in Go", ["Go"])).toEqual([]);
+});
+
+test("leading-dot decimals are numbers", () => {
+  expect(scanClaims("Cut latency to .5 seconds", ["0.5 seconds"])).toEqual([]);
+  expect(scanClaims("Cut latency to .5 seconds", none)).toEqual(["0.5"]);
+});
+
+test("x86 is a name, x2 a multiplier", () => {
+  expect(scanClaims("Optimised x86 kernels", ["x86"])).toEqual([]);
+  expect(scanClaims("Optimised x86 kernels", none)).toEqual(["x86"]);
+  expect(scanClaims("Grew x10", none)).toEqual(["10x"]);
+});

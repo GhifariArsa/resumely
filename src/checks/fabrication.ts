@@ -50,11 +50,15 @@ const WORD_NUMBERS = [
 ];
 const WORD_RE = new RegExp(`\\b(${WORD_NUMBERS.join("|")})\\b`, "gi");
 
+/** `x2`, `x10` multipliers; architecture names (x86, x64, x32) are not multipliers. */
+const MULTIPLIER_RE = /(?<![\p{L}\d_])x(?!(?:86|64|32)\b)(\d{1,2})\b/giu;
+
 /** Unit words and multipliers normalise on both sides; number words (one..twenty) only in sources. */
 function normaliseNumbers(text: string, words: boolean): string {
   const t = text
     .replace(/×/g, "x")
-    .replace(/(?<![\p{L}\d_])x(\d+)\b/gi, "$1x")
+    .replace(MULTIPLIER_RE, "$1x")
+    .replace(/(?<![\p{L}\d_.])\.(\d)/g, "0.$1")
     .replace(/(\d)\s*percent\b/gi, "$1%")
     .replace(/(\d)\s*thousand\b/gi, "$1k")
     .replace(/(\d)\s*million\b/gi, "$1m")
@@ -76,7 +80,7 @@ function numbersIn(text: string, words: boolean): { raw: string; key: string }[]
 const TOKEN_RE = /(?:(?<![\p{L}\p{N}.])\.)?[\p{L}\p{N}][\p{L}\p{N}+#.]*/gu;
 
 function isProperNoun(t: string): boolean {
-  if (/^\d/.test(t) || /^x\d+$/i.test(t) || t.length < 2) return false;
+  if (/^\d/.test(t) || /^\.\d/.test(t) || /^x(?!(?:86|64|32)$)\d{1,2}$/i.test(t) || t.length < 2) return false;
   return /^\p{Lu}/u.test(t) || /[\p{Lu}\p{N}#.+]/u.test(t.slice(1));
 }
 
@@ -92,11 +96,19 @@ function exemptWord(l: string): boolean {
   );
 }
 
-/** Exempt the whole (possibly hyphenated) opening word; a hyphenated word whose last part is a verb form counts as a verb. */
+const WORD_PREFIXES = new Set(["co", "re", "pre", "self", "cross", "multi", "over", "under", "out", "de", "un", "non", "auto", "end"]);
+
+/** Exempt the whole opening word. A hyphenated opener is exempt only as prefix/verb + verb form (Co-led, Re-wrote);
+ *  otherwise its first part is checked as a normal token ("Kafka-based" -> Kafka). */
 function exemptAtSentenceStart(sentence: string, t: string): boolean {
   const whole = (sentence.match(/^[^\p{L}\p{N}]*([\p{L}\p{N}][\p{L}\p{N}-]*)/u)?.[1] ?? t).toLowerCase();
-  const last = whole.split("-").pop()!;
-  return exemptWord(whole) || exemptWord(t.toLowerCase()) || (whole.includes("-") && /(ed|ing)$/.test(last));
+  if (!whole.includes("-")) return exemptWord(whole);
+  if (VERBS.has(whole)) return true;
+  const parts = whole.split("-");
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
+  const firstOk = WORD_PREFIXES.has(first) || VERBS.has(first) || STOPS.has(first);
+  return firstOk && (/(ed|ing)$/.test(last) || VERBS.has(last));
 }
 
 const SENTENCE_SPLIT = /(?<=[.!?;:])(?<!\be\.g\.|\bi\.e\.|\bvs\.|\betc\.)\s+/i;
