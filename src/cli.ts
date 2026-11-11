@@ -94,7 +94,7 @@ Example:
     if (!["manual", "interview", "import"].includes(source)) throw new UserError(`Unknown --source "${source}"`, "Use manual, interview or import");
     const input = parseAddInput(type, flags, raw);
     const r = stageAdd(layout(dataRoot()).profile, load(), input, { kind: source as Proposal["source"]["kind"], ref: source });
-    if (!r.staged.length) return console.log(`nothing new: ${r.skipped.join("; ")}`);
+    if (!r.staged.length) return console.log(`nothing new: ${r.skipped.join("; ") || "already in the profile"}`);
     for (const p of r.staged) console.log(`proposed ${p.pid} (${p.kind} ${p.entry?.id ?? p.kind})`);
   });
 
