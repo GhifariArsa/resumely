@@ -58,7 +58,11 @@ resumely profile review --accept 3 --reject 4 [--as update|new]
 resumely profile review --accept-all
 ```
 
-Interactive keys: `a` accept, `e` edit in `$VISUAL`/`$EDITOR` (split on whitespace, never run through a shell), `r` reject, `s` skip, `q` quit; a possible duplicate offers `u` update the existing entry and `n` add as a new entry. Accepting an update replaces only the entry's frontmatter, the prose before its first `## ` heading and its `## Highlights` and `## Context` sections; every other section, including `## Private`, is kept. Accepting an `about` summary replaces only the prose before the first `## ` heading of `about.md`. A `## Private` section you type while editing a proposal is never saved in the inbox (agents can read it): it is written to the profile when you accept the proposal in the same session, and dropped (with a note) if you skip or quit. `--accept-all` skips possible duplicates, which need an explicit `--accept <pid> --as update|new`; a new entry is checked again when you accept it, so a second proposal for a role you just accepted is treated as a possible duplicate too. When two proposals share a number, use the full pid. Decided proposals are moved to `profile/.inbox/archive/` with the decision, as an audit trail.
+Interactive keys: `a` accept, `e` edit in your editor (see [Editor](#editor)), `r` reject, `s` skip, `q` quit; a possible duplicate offers `u` update the existing entry and `n` add as a new entry, after showing the diff an update would apply.
+
+Accepting an update changes only what the proposal sets: frontmatter keys it leaves out (and an empty `skills` or `tags` list) keep their live values, its bullets replace `## Highlights` and its context replaces `## Context` (a proposal without bullets or context leaves those sections alone). The prose before the first `## ` heading is kept unless the entry has no `## Highlights` section, in which case that prose is taken to be the highlights and the proposal's `## Highlights` replaces it in place. Every other section, including `## Private`, is kept. To clear a field, edit the entry file directly. Accepting an `about` summary replaces only the prose before the first `## ` heading of `about.md`.
+
+A `## Private` section you type while editing a proposal is never saved in the inbox (agents can read it): it is written to the profile when you accept the proposal in the same session, and dropped (with a note) if you skip or quit. `--accept-all` skips possible duplicates, which need an explicit `--accept <pid> --as update|new`; a new entry is checked again when you accept it, so a second proposal for a role you just accepted is treated as a possible duplicate too. When two proposals share a number, use the full pid. Decided proposals are moved to `profile/.inbox/archive/` with the decision, as an audit trail.
 
 ### Add one thing
 
@@ -92,15 +96,7 @@ resumely profile lint [--json]
 
 Prints problems and exits 1 if any is an `error`. Codes: `parse-error`, `duplicate-id`, `end-before-start` and `future-start` (errors); `future-end`, `missing-dates`, `outcome-less-bullet` (a bullet without a measurable result), `duplicate-skill`, `private-heading`, `placeholder-about` (`about.md` still has the name, email or summary placeholder from `resumely init`; `apply` warns about it too), `unused-entry` (not cited by any resume or cover letter; only checked once you have applications) and `pending-proposals` (warnings).
 
-### Trace
-
-```sh
-resumely trace <app> [--cover] [--version N] [--json]
-```
-
-Shows each resume bullet (or cover-letter paragraph) with the profile entries it came from, whether it was a direct or inferred claim, any unsourced-token flags, the gaps and the warnings from the checks.
-
-### apply
+## Applying to a job
 
 ```sh
 resumely apply [input] [--clip] [--harness <name>] [--template <id>] [--pages <n>]
@@ -108,7 +104,7 @@ resumely apply [input] [--clip] [--harness <name>] [--template <id>] [--pages <n
                [--role <title>] [--into <app>] [--new] [--no-open]
 ```
 
-The job comes from a file, a URL, `--clip`, or, when you run `apply` with no input in a terminal, from `$VISUAL`/`$EDITOR` (paste the posting, save and close; an empty file cancels). The editor command is split into argv and never goes through a shell.
+The job comes from a file, a URL, `--clip`, or, when you run `apply` with no input in a terminal, from your editor (paste the posting, save and close; an empty file cancels).
 
 - `--stretch`: allow inferred claims (reasonable but not stated in your profile). They are printed as `inferred claims to review:` and marked in the trace; default mode is truthful.
 - `--no-cover`, `--no-research`, `--no-review`: skip the cover letter, the company research, or the review loop.
@@ -117,7 +113,21 @@ The job comes from a file, a URL, `--clip`, or, when you run `apply` with no inp
 - `--role <title>`: when a posting lists several roles, resumely uses the most prominent one and notes the others in the output; `--role` picks another.
 - `--into <app>` adds a new version to an existing application; `--new` creates a separate one. If a duplicate of the same job exists and you pass neither, you are asked.
 
-Other commands:
+Ctrl-C during a run, including at the `--review` and duplicate prompts, exits with status 130 and marks the run failed, so `resumely resume` can continue it (see [Checkpoints and resume](#checkpoints-and-resume)).
+
+### Editor
+
+`apply` (with no input) and `profile review` (`e`) open `$VISUAL`, else `$EDITOR`, else `vi`; blank values are skipped. The value is split on whitespace into argv (`code --wait` works), unless it is the path of an existing file, which is used as is even if it contains spaces. It never goes through a shell.
+
+### Trace
+
+```sh
+resumely trace <app> [--cover] [--version N] [--json]
+```
+
+Shows each resume bullet (or cover-letter paragraph) with the profile entries it came from, whether it was a direct or inferred claim, any unsourced-token flags, the gaps and the warnings from the checks.
+
+### Other commands
 
 - `ls [--status <s>] [--company <text>]`, `open <app> [--cover] [--version N]`
 - `mv <app> [--company <name>] [--role <title>]`: change an application's company and/or role and rename its folder
@@ -128,7 +138,7 @@ Other commands:
 - `status <app> <drafted|applied|interviewing|rejected|offer>`: `applied` is refused while a document is not ready unless you pass `--force`
 - `note <app> <text...>`: dated note on an application
 - `export <app> [--version N] [--to <dir>]`: copy the send-ready PDFs of whichever documents exist (default `~/Desktop`)
-- `profile show [id]`, `profile context`, `profile import`, `profile review`, `profile add`, `profile lint`, `interview`, `trace` (see [Building your profile](#building-your-profile))
+- `profile show [id]`, `profile context`, `profile import`, `profile review`, `profile add`, `profile lint`, `interview` (see [Building your profile](#building-your-profile)); `trace` (see [Trace](#trace))
 
 Postings from a recruiting agency with an undisclosed client are recorded as `Confidential (via <agency>)`: the folder name comes from the agency and the role, and company research is skipped.
 
@@ -244,13 +254,13 @@ bun run eval [--harness claude,codex] [--jobs backend,mismatched] [--out <dir>] 
 
 Opt-in and slow: runs the full pipeline over the fixture postings in `tests/fixtures/jobs/` in a throwaway data root (your real one is only read for custom adapters) and prints a table of readiness, ATS, review scores, rounds, gaps, fabrication count and wall time, plus the expected-gap check for `mismatched`. It makes real LLM calls and is never run by `bun test`. Measured with claude on 2026-11-11: `backend` 2:59 and `mismatched` 3:58 (both ready, `mismatched` meets its expected gaps); a full `apply` with the `modern` template took 6:35 including two review rounds.
 
-## Status: P3 + P4
+## Status
 
-Works now:
+Works now (P1 to P4):
 
 - `init`, `profile show`, `profile context`
-- Profile building: `profile import` (PDF, DOCX, Markdown, text, HTML, URL), the review inbox (`profile review`), `profile add`, `interview`, `profile lint`, and `trace`
-- `apply`: job parse, company research, tailored resume and cover letter with review loop, gaps, traces, `--stretch`, `--role`, `$EDITOR` intake, agency postings
+- Profile building: `profile import` (PDF, DOCX, Markdown, text, HTML, URL), the review inbox (`profile review`), `profile add`, `interview` and `profile lint`
+- `apply`: job parse, company research, tailored resume and cover letter with review loop, gaps, traces (`trace`), `--stretch`, `--role`, `$EDITOR` intake, agency postings
 - Four templates, `templates list|new`, `doctor`
 - Checkpointed runs with `resume`, opt-in `fallback_harnesses`, locked-down research agent
 - Versioned applications: `ls`, `open`, `render`, `status`, `note`, `mv`, `export`
@@ -260,4 +270,4 @@ Works now:
 
 Coming next:
 
-- Roadmap beyond P4: see [design.md](design.md)
+- P5: a local web viewer, `resumely ui` (plan in [docs/superpowers/plans/](docs/superpowers/plans/)); the wider roadmap is in [design.md](design.md)
