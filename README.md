@@ -30,25 +30,57 @@ resumely open <app>          # open the latest resume PDF, or the cover letter i
 ```sh
 resumely apply [input] [--clip] [--harness <name>] [--template <id>] [--pages <n>]
                [--stretch] [--no-cover] [--no-research] [--no-review] [--review]
-               [--into <app>] [--new] [--no-open]
+               [--role <title>] [--into <app>] [--new] [--no-open]
 ```
+
+The job comes from a file, a URL, `--clip`, or, when you run `apply` with no input in a terminal, from `$VISUAL`/`$EDITOR` (paste the posting, save and close; an empty file cancels). The editor command is split into argv and never goes through a shell.
 
 - `--stretch`: allow inferred claims (reasonable but not stated in your profile). They are printed as `inferred claims to review:` and marked in the trace; default mode is truthful.
 - `--no-cover`, `--no-research`, `--no-review`: skip the cover letter, the company research, or the review loop.
 - `--review`: pause after the job is parsed so you can confirm it (interactive terminals only).
 - `--pages <n>`: resume page target (default 1).
+- `--role <title>`: when a posting lists several roles, resumely uses the most prominent one and notes the others in the output; `--role` picks another.
 - `--into <app>` adds a new version to an existing application; `--new` creates a separate one. If a duplicate of the same job exists and you pass neither, you are asked.
 
 Other commands:
 
 - `ls [--status <s>] [--company <text>]`, `open <app> [--cover] [--version N]`
+- `mv <app> [--company <name>] [--role <title>]`: change an application's company and/or role and rename its folder
+- `templates list` / `templates new <id> [--from <base>]`: list built-in and user templates, or copy one into `<root>/templates/<id>/` to edit
+- `doctor`: check harnesses, LaTeX, templates and the data root
+- `resume [run-id] [--harness <name>]`: continue a failed run (see [Checkpoints and resume](#checkpoints-and-resume))
 - `render <app> --template <id> [--cover] [--version N]` re-renders a saved version with the given template (required) without calling the agent
 - `status <app> <drafted|applied|interviewing|rejected|offer>`: `applied` is refused while a document is not ready unless you pass `--force`
 - `note <app> <text...>`: dated note on an application
 - `export <app> [--version N] [--to <dir>]`: copy the send-ready PDFs of whichever documents exist (default `~/Desktop`)
 - `profile show [id]`, `profile context`
 
+Postings from a recruiting agency with an undisclosed client are recorded as `Confidential (via <agency>)`: the folder name comes from the agency and the role, and company research is skipped.
+
 Set `RESUMELY_HOME` to use a different data root. Every run produces versioned outputs under `applications/<date>-<company>-<role>/{resume,cover-letter}/vN/` (PDF, source, trace, `review.json`, `meta.json`).
+
+## Templates
+
+Four single-column, ATS-readable templates, each with a matching cover letter. Choose one with `--template <id>` or `template = "..."` in `config.toml`; `resumely render <app> --template <id>` re-renders a saved version without calling the agent.
+
+| ID | Based on | Engine | Preview |
+|---|---|---|---|
+| `classic` (default) | Jake's Resume (MIT) | pdfLaTeX | ![classic](templates/classic/preview.png) |
+| `modern` | Awesome-CV (LPPL 1.3c), uses fontawesome5 from stock TeX Live | LuaLaTeX | ![modern](templates/modern/preview.png) |
+| `traditional` | McDowell CV (MIT) | XeLaTeX | ![traditional](templates/traditional/preview.png) |
+| `minimal` | moderncv `banking` (LPPL 1.3c) | pdfLaTeX | ![minimal](templates/minimal/preview.png) |
+
+`resumely templates list` shows built-in and user templates. `resumely templates new mine --from minimal` copies a template into `<root>/templates/mine/`, where you can edit it (Nunjucks with `((* *))` / `((( )))` delimiters; everything is LaTeX-escaped). `bun run previews` regenerates the preview images.
+
+## Doctor
+
+`resumely doctor` checks that the data root and profile load; that each harness is installed and authenticated; that `latexmk` and the engines (pdflatex, xelatex, lualatex) exist; that every template's packages and fonts are available; and that `pdftotext` is present. It exits 1 only when a required check fails (pi is optional). The `pi` preset has no login probe because its provider varies, so doctor reports it as "not checked" with a hint; set `adapters.pi.auth_check` to enable one.
+
+## Checkpoints and resume
+
+Every pipeline step writes its output and `state.json` under `.runs/<run-id>/` before the next step starts. If a run fails (rate limit, timeout, Ctrl-C, ...), `apply` prints `resume with: resumely resume <id>`. `resumely resume [run-id] [--harness <name>]` continues from the last finished step, printing `reused from checkpoint` for steps it does not repeat; with no id it picks the most recent failed run, and `--harness` switches harness for the remaining steps (for example when the first one is rate limited). Refusals from the duplicate-application check ("Already applied") abort the run and are not resumable.
+
+To fail over automatically, opt in with `fallback_harnesses = ["codex", "pi"]` in `config.toml` (off by default). A step that the primary harness cannot run (not installed, auth, rate limit, timeout) is retried on the next harness, and `apply` warns which steps ran on a fallback. The per-call timeout is `timeout_minutes` (default 10).
 
 ## Cover letters and voice samples
 
@@ -56,7 +88,7 @@ The cover letter is written from your profile, the job and the company research,
 
 ## Company research and privacy
 
-Before writing, the agent searches the web for the company (what it does, recent news, engineering culture) using the harness's own web tools. The research step receives exactly one data file, `target.json`, holding the company name, the role title, the location (if the posting states one) and the posting's URL (if you applied from a URL), plus the output schema. It does not receive the job posting text, your profile or anything else from your data root: it runs in a fresh temporary directory outside the data root, and only its output and logs are copied back to `.runs/<run>/research/`. Fetched pages are treated as untrusted data. Facts must carry a source URL. If nothing verifiable is found (an unknown or fictional company, say) the research returns no facts, `meta.json` records `research: "none_found"`, and the letter is written from the posting alone rather than guessing. `apply` prints `warning: research failed` only when the step itself fails. `claude` and `codex` have research presets; `pi` has no web tools, so research is skipped with a warning unless you set `research_command` on your adapter. `--no-research` skips it.
+Before writing, the agent searches the web for the company (what it does, recent news, engineering culture) using the harness's own web tools. The research step receives exactly one data file, `target.json`, holding the company name, the role title, the location (if the posting states one) and the posting's URL (if you applied from a URL), plus the output schema. It does not receive the job posting text, your profile or anything else from your data root: it runs in a fresh temporary directory outside the data root, and only its output and logs are copied back to `.runs/<run>/research/`. Fetched pages are treated as untrusted data. Facts must carry a source URL. If nothing verifiable is found (an unknown or fictional company, say) the research returns no facts, `meta.json` records `research: "none_found"`, and the letter is written from the posting alone rather than guessing. `apply` prints `warning: research failed` only when the step itself fails. The research step never sees your profile. `claude` and `codex` have research presets; `pi` has no web tools, so research is skipped with a warning unless you set `research_command` on your adapter. `--no-research` skips it.
 
 ## Review loop and ready gates
 
@@ -96,7 +128,7 @@ A `## Private` section (also `## Private:` or `## Private notes`, up to the next
 
 ### Agent access
 
-The writer and reviewer agents run with file tools in a workspace inside your data root (`~/resumely/.runs/<run>/`, kept as a debug trail), so they could read other files there, including your raw profile. The web-capable research agent runs outside the data root (see [Company research and privacy](#company-research-and-privacy)). How far it can reach depends on the harness: `claude` is limited to the tools in `--allowedTools`, `codex` runs in its `workspace-write` sandbox, and `pi` has no sandbox. Job postings are untrusted input; treat job URLs from unknown sources with care.
+The writer and reviewer agents run with file tools in a workspace inside your data root (`~/resumely/.runs/<run>/`, kept as a debug trail), so they could read other files there, including your raw profile. The web-capable research agent runs outside the data root (see [Company research and privacy](#company-research-and-privacy)). How far it can reach depends on the harness: for writing and review, `claude` is limited to the tools in `--allowedTools`, `codex` runs in its `workspace-write` sandbox, and `pi` has no sandbox. In the research step, `claude` gets only `WebSearch`, `WebFetch` and `Write` (`--tools`) and no MCP servers (`--strict-mcp-config`); `codex` has only its `--search` flag plus cwd isolation (a temp directory outside your data root), not a tool allowlist. Job postings are untrusted input; treat job URLs from unknown sources with care.
 
 ### Debugging what the agent sees
 
@@ -129,16 +161,27 @@ check = ["pi", "--version"]
 
 The pi preset defaults to pi's default provider (google). If that provider isn't authenticated, override the adapter as above with a provider you have set up (`pi auth check --provider <name>`); pi requires a configured provider.
 
-## Status: P2
+## Evaluating harnesses
+
+```sh
+bun run eval [--harness claude,codex] [--jobs backend,mismatched] [--out <dir>] [--stretch]
+```
+
+Opt-in and slow: runs the full pipeline over the fixture postings in `tests/fixtures/jobs/` in a throwaway data root (your real one is only read for custom adapters) and prints a table of readiness, ATS, review scores, rounds, gaps, fabrication count and wall time, plus the expected-gap check for `mismatched`. It makes real LLM calls and is never run by `bun test`. Measured with claude on 2026-11-11: `backend` 2:59 and `mismatched` 3:58 (both ready, `mismatched` meets its expected gaps); a full `apply` with the `modern` template took 6:35 including two review rounds.
+
+## Status: P3
 
 Works now:
 
 - `init`, `profile show`, `profile context`
-- `apply`: job parse, company research, tailored resume and cover letter with review loop, gaps, traces, `--stretch`
-- Versioned applications: `ls`, `open`, `render`, `status`, `note`, `export`
+- `apply`: job parse, company research, tailored resume and cover letter with review loop, gaps, traces, `--stretch`, `--role`, `$EDITOR` intake, agency postings
+- Four templates, `templates list|new`, `doctor`
+- Checkpointed runs with `resume`, opt-in `fallback_harnesses`, locked-down research agent
+- Versioned applications: `ls`, `open`, `render`, `status`, `note`, `mv`, `export`
+- `bun run eval` baseline
 - Private-content withholding
 - claude and codex verified end to end including web research; pi verified with a provider override (research skipped, no web tools)
 
 Coming next:
 
-- Roadmap beyond P2: see [design.md](design.md)
+- Roadmap beyond P3: see [design.md](design.md)

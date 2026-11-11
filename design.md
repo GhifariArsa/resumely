@@ -148,7 +148,7 @@ Frontmatter: `id`, `type`, type-specific fields (`org`, `title`, `start`, `end`,
 | ID | Based on | Licence | Engine | Feel |
 |---|---|---|---|---|
 | `classic` (default) | Jake's Resume (`jakegut/resume`, from `sb2nov/resume`) | MIT | pdfLaTeX | Dense, small caps section rules; tech standard |
-| `modern` | Awesome-CV (`posquit0/Awesome-CV`) | LPPL 1.3c | LuaLaTeX (needs `fontawesome6`) | Accent colour, polished, paired cover letter |
+| `modern` | Awesome-CV (`posquit0/Awesome-CV`) | LPPL 1.3c | LuaLaTeX (fontawesome5) | Accent colour, polished, paired cover letter |
 | `traditional` | McDowell CV (`dnl-blkv/mcdowell-cv`) | MIT | XeLaTeX | Serif, conservative |
 | `minimal` | moderncv `banking` style | LPPL | pdfLaTeX | Sans, clean, icon contact line |
 
@@ -252,7 +252,7 @@ templates/<id>/
 
 ## Open questions / deferred decisions
 - **Verify headless flags per harness** — confirm current non-interactive, sandbox and permission flags for `claude`, `codex`, `pi` (and how each exposes web tools for research). *Trigger:* first task of implementation, before writing adapters.
-- **`modern` template dependency** — `fontawesome6` missing from a stock TeX Live 2025 here. Decide between a `doctor` hint (`tlmgr install fontawesome6`) and vendoring the package/fonts with the template. *Trigger:* when implementing `modern`.
+- **`modern` template dependency** — **Resolved:** fontawesome5 from stock TeX Live; no vendoring (`fontawesome6` is not in stock TeX Live, so `modern` does not use it). `doctor` checks that the package is installed.
 - **DOCX output** — some application portals require Word files. Deferred from v1; revisit if a real application needs it (likely via pandoc from content JSON, not from LaTeX).
 - **Screening-question answers** — `resumely answer <app> "Why do you want to work here?"` using the same profile, research and trace rules. Strong post-v1 candidate.
 - **Browser extension / "send tab to resumely"** — post-v1 (§7).

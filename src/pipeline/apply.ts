@@ -260,7 +260,9 @@ async function pipeline(p: Pipeline): Promise<ApplyResult> {
     });
     return value;
   };
-  const taken = p.app ? { app: p.app, job: loadParsed(p.app) ?? (await parse()), warnings: [] as string[] } : await intake({ ...p, role: opt.role }, l.applications, parse);
+  const savedJob = p.app ? loadParsed(p.app) : null;
+  if (savedJob) onProgress?.("parse: reused from checkpoint");
+  const taken = p.app ? { app: p.app, job: savedJob ?? (await parse()), warnings: [] as string[] } : await intake({ ...p, role: opt.role }, l.applications, parse);
   const { app, job } = taken;
   cp.setApp(app);
   const warnings = isEnglish(job.language) ? [] : [`job description language is "${job.language}"; v1 is English-only`];
@@ -279,6 +281,7 @@ async function pipeline(p: Pipeline): Promise<ApplyResult> {
   let researchStatus: ResearchStatus = "skipped";
   if (cp.state.research) {
     researchStatus = cp.state.research.status;
+    onProgress?.("research: reused from checkpoint");
     if (researchStatus === "used") research = loadCompanyResearch(app.dir);
     if (cp.state.research.warning) warnings.push(cp.state.research.warning);
   } else {

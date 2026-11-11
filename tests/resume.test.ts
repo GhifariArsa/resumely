@@ -112,7 +112,9 @@ describe.skipIf(!hasLatex)("checkpointed runs", () => {
     expect(state(first.runId).status).toBe("failed");
     expect(state(first.runId).error.kind).toBe("rate_limit");
 
-    const r = await resumeRun({ root, open: false });
+    const progress: string[] = [];
+    const r = await resumeRun({ root, open: false, onProgress: (m) => progress.push(m) });
+    expect(progress).toEqual(expect.arrayContaining(["parse: reused from checkpoint", "research: reused from checkpoint"]));
     expect(calls()).toEqual(["cover-write", "cover-review-1"]);
     expect(r.runId).toBe(first.runId);
     expect(r.failures).toEqual([]);
