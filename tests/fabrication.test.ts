@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { scanClaims } from "../src/checks/fabrication";
+import { scanClaims, PROSE_OPENERS, ADVERB_OPENERS, RESUME_VERBS } from "../src/checks/fabrication";
 
 const src = ["Rebuilt dashboard, 60% faster; 2M events", "Atlas Labs"];
 
@@ -167,4 +167,32 @@ test("R9: short names (≤3 chars) never take the lowercase exemption at sentenc
   expect(scanClaims("Go services handle billing.", ["owned the go-live"])).toContain("Go");
   expect(scanClaims("Go services handle billing.", [], { context: "ready to go" })).toContain("Go");
   expect(scanClaims("Go services handle billing.", ["Built services in Go"])).toEqual([]);
+});
+
+test("prose openers: Alongside and friends are exempt only when opted in", () => {
+  expect(scanClaims("Alongside the billing rebuild, I mentored two engineers.", ["billing rebuild", "mentored"], { openers: PROSE_OPENERS })).toEqual([]);
+  expect(scanClaims("Works like Ledgerly taught me to ship small.", ["Ledgerly"], { openers: PROSE_OPENERS })).toEqual([]);
+});
+
+test("Work is a resume verb", () => {
+  expect(scanClaims("Works closely with the data team.", [])).toEqual([]);
+});
+
+test("-ly proper nouns are flagged; only listed adverbs are exempt", () => {
+  expect(scanClaims("Calendly integrations shipped.", [])).toEqual(["Calendly"]);
+  expect(scanClaims("Calendly integrations shipped.", ["Built Calendly sync"])).toEqual([]);
+  expect(scanClaims("Bitly links tracked.", [])).toEqual(["Bitly"]);
+  expect(scanClaims("Recently moved to Postgres.", ["Postgres"])).toEqual([]);
+  expect(scanClaims("Previously built REST services in Go.", ["Go"])).toEqual([]);
+  expect(scanClaims("Weekly reports automated.", [])).toEqual([]);
+  expect(scanClaims("Friendly reviews helped.", [], { context: "kept it friendly" })).toEqual([]);
+});
+
+test("R9: exemption entries of 3 characters or fewer are only the P2 short entries", () => {
+  const p2Short = new Set([
+    "All", "And", "Any", "As", "At", "But", "By", "Cut", "For", "Got", "He", "Hit", "How", "If", "In", "It", "Its", "Led", "Met", "My",
+    "Not", "Of", "On", "Or", "Our", "Own", "Put", "Ran", "Run", "Saw", "Set", "She", "So", "To", "Use", "Why", "Win", "Won", "Yet", "You",
+  ]);
+  const short = [...PROSE_OPENERS, ...ADVERB_OPENERS, ...RESUME_VERBS].filter((w) => w.length <= 3);
+  expect(short.filter((w) => !p2Short.has(w))).toEqual([]);
 });

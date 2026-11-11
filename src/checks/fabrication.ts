@@ -30,7 +30,13 @@ export const RESUME_VERBS: readonly string[] = [
   "Bring", "Cleared", "Co-led", "Mentoring", "Achieve", "Analyze", "Analyse", "Apply", "Assist", "Audit", "Boost", "Carry",
   "Document", "Enable", "Ensure", "Execute", "Facilitate", "Generate", "Guide", "Identify", "Integrate", "Lower", "Monitor",
   "Rebuilt", "Stood", "Hit", "Spent", "Split", "Bought", "Sought", "Felt", "Met", "Paid", "Read", "Shot", "Spoke", "Told",
-  "Understood", "End-to-end", "Co-led", "Prototype", "Review", "Secure", "Simplify", "Standardize", "Standardise", "Unify", "Use", "Utilize", "Validate",
+  "Understood", "Work", "End-to-end", "Co-led", "Prototype", "Review", "Secure", "Simplify", "Standardize", "Standardise", "Unify", "Use", "Utilize", "Validate",
+];
+
+/** Sentence-opening adverbs, exempt in all text (resumes included). Words ending in -ly that are not listed here
+ *  (Calendly, Bitly) are treated as names. */
+export const ADVERB_OPENERS: readonly string[] = [
+  "Recently", "Previously", "Currently", "Additionally", "Finally", "Initially", "Originally", "Ultimately", "Notably", "Similarly", "Specifically", "Primarily", "Mostly", "Largely", "Typically", "Usually", "Generally", "Eventually", "Consequently", "Accordingly", "Importantly", "Increasingly", "Personally", "Separately", "Subsequently", "Simultaneously", "Fortunately", "Unfortunately", "Interestingly", "Ideally", "Clearly", "Naturally", "Lately", "Formerly", "Early", "Daily", "Weekly", "Monthly", "Quarterly", "Only", "Regularly", "Briefly", "Quickly", "Directly", "Independently", "Jointly", "Successfully", "Effectively", "Efficiently", "Consistently", "Proactively", "Collaboratively", "Partly", "Fully", "Newly", "Nearly", "Roughly", "Approximately",
 ];
 
 /** Ordinary prose sentence openers. Opt-in (cover letters): resume bullets open with verbs and never need them. */
@@ -40,10 +46,12 @@ export const PROSE_OPENERS: readonly string[] = [
   "Each", "Both", "Every", "Any", "All", "Most", "Many", "Some", "Another", "Other", "What", "Which", "Why", "How", "Whether", "When", "While", "Once",
   "Since", "Because", "Before", "After", "During", "Earlier", "Later", "Today", "Recently", "Previously", "Currently", "Meanwhile",
   "Finally", "Overall", "Specifically", "Additionally", "However", "Moreover", "Instead", "Rather", "Please", "Thank", "Thanks", "Happy", "Glad",
+  "Alongside", "Across", "Among", "Amid", "Around", "Through", "Throughout", "Within", "Without", "Toward", "Towards", "Together", "Although", "Though", "Unlike", "Despite", "Following", "Given", "Having", "Here", "Where", "Even", "Such", "Several", "Much", "Above", "Below", "Along", "Against", "Until", "Unless", "Whatever", "Whenever", "Perhaps", "Indeed", "Thus", "Hence", "Therefore", "Otherwise", "Again", "First", "Second", "Third", "Next", "Last", "Never", "Always", "Often", "Sometimes", "Back", "Outside", "Inside", "Besides", "Between", "Behind", "Upon", "Into", "Near", "Past", "Like",
 ];
 
 const IGNORED = new Set([...STOP_WORDS, ...GENERIC_CAPITALISED].map((w) => w.toLowerCase()));
 const VERBS = new Set(RESUME_VERBS.map((w) => w.toLowerCase()));
+const ADVERBS = new Set(ADVERB_OPENERS.map((w) => w.toLowerCase()));
 const STOPS = new Set(STOP_WORDS.map((w) => w.toLowerCase()));
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -116,10 +124,10 @@ const PLAIN_TITLECASE = /^\p{Lu}\p{Ll}+$/u;
 
 /** Exempt the whole opening word. A hyphenated opener is exempt when its first part is a known prefix, verb or
  *  stop word (Co-led, Real-time, Cross-functional); otherwise its first part is checked as a normal token
- *  ("Kafka-based" -> Kafka). Words ending in -ly are adverbs (Previously, Recently). */
+ *  ("Kafka-based" -> Kafka). Only listed adverbs (ADVERB_OPENERS) are exempt. */
 function exemptAtSentenceStart(sentence: string, t: string): boolean {
   const whole = (sentence.match(/^[^\p{L}\p{N}]*([\p{L}\p{N}][\p{L}\p{N}-]*)/u)?.[1] ?? t).toLowerCase();
-  if (!whole.includes("-")) return exemptWord(whole) || (PLAIN_TITLECASE.test(t) && whole.endsWith("ly"));
+  if (!whole.includes("-")) return exemptWord(whole) || ADVERBS.has(whole);
   if (VERBS.has(whole)) return true;
   const first = whole.split("-")[0]!;
   return WORD_PREFIXES.has(first) || VERBS.has(first) || STOPS.has(first);
