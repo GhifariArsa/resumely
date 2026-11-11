@@ -1,7 +1,7 @@
 import type { LintIssue } from "../../profile/lint";
 import { ENTRY_TYPES, type Entry, type EntryType } from "../../profile/schema";
 import type { EntryUsage, ProfileView } from "../data";
-import { html, noticeBox, page, type PageCtx, type SafeHtml } from "../html";
+import { appPath, html, noticeBox, page, type PageCtx, type SafeHtml } from "../html";
 
 const TYPE_HEADING: Record<EntryType, string> = {
   experience: "Experience",
@@ -38,7 +38,7 @@ function checksSection(view: ProfileView, loadedIds: Set<string>): SafeHtml {
 function usageItem(u: EntryUsage): SafeHtml {
   const last = u.versions[u.versions.length - 1];
   const name = u.kind === "resume" ? "resume" : "cover letter";
-  return html`<li><a href="/app/${u.slug}?kind=${u.kind}&amp;v=${last}">${u.company}, ${u.role}</a> <span class="meta">${name} ${u.versions.map((v) => `v${v}`).join(", ")}</span></li>`;
+  return html`<li><a href="${appPath(u.slug)}?kind=${u.kind}&amp;v=${last}">${u.company}, ${u.role}</a> <span class="meta">${name} ${u.versions.map((v) => `v${v}`).join(", ")}</span></li>`;
 }
 
 function entryBlock(e: Entry, usage: EntryUsage[], issues: LintIssue[]): SafeHtml {
@@ -49,7 +49,7 @@ function entryBlock(e: Entry, usage: EntryUsage[], issues: LintIssue[]): SafeHtm
 ${e.skills.length ? html`<p class="entry-skills"><span class="meta">Skills</span> ${e.skills.join(", ")}</p>` : ""}
 ${e.tags.length ? html`<p class="entry-tags"><span class="meta">Tags</span> ${e.tags.join(", ")}</p>` : ""}
 ${issues.length ? html`<ul class="issues">${issues.map((i) => issueRow(i, false))}</ul>` : ""}
-${e.privateLines > 0 ? html`<p class="meta">[private: ${e.privateLines} lines withheld]</p>` : ""}
+${e.privateLines > 0 ? html`<p class="meta">[private: ${plural(e.privateLines, "line")} withheld]</p>` : ""}
 <h4>Used in</h4>
 ${usage.length ? html`<ul class="usage">${usage.map(usageItem)}</ul>` : html`<p class="meta">Not used yet</p>`}
 <div class="doc-text">${e.body}</div>
@@ -74,8 +74,8 @@ function header(view: ProfileView): SafeHtml {
   if (!p) return html`<h1>Profile</h1>`;
   const lines = p.entries.reduce((n, e) => n + e.privateLines, 0);
   const notes = [
-    lines > 0 ? `${lines} private lines withheld from the agent` : "",
-    p.aboutPrivateKeys > 0 ? `${p.aboutPrivateKeys} private fields in about.md` : "",
+    lines > 0 ? `${plural(lines, "private line")} withheld from the agent` : "",
+    p.aboutPrivateKeys > 0 ? `${plural(p.aboutPrivateKeys, "private field")} in about.md` : "",
   ].filter(Boolean);
   return html`<h1>${p.about.name}</h1>${p.about.headline ? html`<p class="headline">${p.about.headline}</p>` : ""}${notes.map((n) => html`<p class="meta private-note">${n}</p>`)}`;
 }

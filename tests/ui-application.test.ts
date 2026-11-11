@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { layout } from "../src/paths";
 import { applicationView, type AppView } from "../src/ui/data";
@@ -24,14 +24,14 @@ describe("atlas default (resume v2)", () => {
     expect(out).toContain(`<iframe class="pdf" src="/files/${fx.atlas}/resume/v2/Jordan_Example_Resume_AtlasFreight.pdf"`);
     expect(out).toContain('title="Resume v2 PDF"');
     expect(out).toContain("Open the PDF");
-    expect(out).toContain('href="?kind=resume&amp;v=1"');
-    expect(out).toContain('href="?kind=resume&amp;v=2"');
-    const v2 = out.slice(out.indexOf('href="?kind=resume&amp;v=2"')).split("</a>")[0]!;
+    expect(out).toContain(`href="/app/${fx.atlas}?kind=resume&amp;v=1"`);
+    expect(out).toContain(`href="/app/${fx.atlas}?kind=resume&amp;v=2"`);
+    const v2 = out.slice(out.indexOf(`href="/app/${fx.atlas}?kind=resume&amp;v=2"`)).split("</a>")[0]!;
     expect(v2).toContain("Sent");
     expect(v2).toContain('aria-current="page"');
     expect(out).toContain("Not ready");
-    expect(out).toMatch(/href="\?kind=resume" aria-current="page">Resume<\/a>/);
-    expect(out).toMatch(/href="\?kind=cover-letter">Cover letter<\/a>/);
+    expect(out).toContain(`href="/app/${fx.atlas}?kind=resume" aria-current="page">Resume</a>`);
+    expect(out).toContain(`href="/app/${fx.atlas}?kind=cover-letter">Cover letter</a>`);
   });
 
   test("header: company, role, status, created, sent line", () => {
@@ -46,7 +46,8 @@ describe("atlas default (resume v2)", () => {
   test("cover-letter only has one tab", () => {
     const out = render(fx.coverOnly);
     expect(out).toContain("Cover letter</a>");
-    expect(out).not.toContain('href="?kind=resume"');
+    expect(out).toContain(`href="/app/${fx.coverOnly}?kind=cover-letter" aria-current="page">Cover letter</a>`);
+    expect(out).not.toContain(`href="/app/${fx.coverOnly}?kind=resume"`);
     expect(out).toContain('title="Cover letter v1 PDF"');
   });
 });
@@ -264,5 +265,25 @@ describe("hostile and empty", () => {
       expect(out).toContain('<script type="module" src="/assets/application.js"></script>');
       expect(out).toContain('href="/assets/application.css"');
     }
+  });
+});
+
+describe("links and forms encode the slug", () => {
+  test("every app link and form action uses the encoded slug", () => {
+    const v = view(fx.atlas);
+    const out = applicationPage({ ...v, app: { ...v.app, slug: "a b#c?d" } }, ctx, { tone: "error", message: "x", retryApplied: true });
+    for (const action of ["status", "note", "render", "reveal"]) expect(out).toContain(`action="/app/a%20b%23c%3Fd/${action}"`);
+    expect(out.match(/action="\/app\/a%20b%23c%3Fd\/status"/g)?.length).toBe(2);
+    expect(out).toContain(`href="/app/a%20b%23c%3Fd?kind=cover-letter"`);
+    expect(out).toContain(`href="/app/a%20b%23c%3Fd?kind=resume&amp;v=1"`);
+    expect(out).not.toContain("/app/a b");
+  });
+});
+
+describe("base.css", () => {
+  test("[hidden] wins over the button display rule, so copy buttons stay hidden without JS", () => {
+    const css = readFileSync(join(import.meta.dir, "../src/ui/assets/base.css"), "utf8");
+    expect(css).toMatch(/\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
+    expect(render(fx.atlas)).toMatch(/<button type="button" data-copy="[^"]+" hidden>Copy path<\/button>/);
   });
 });

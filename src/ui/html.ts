@@ -44,6 +44,11 @@ export function safeHref(url: string | undefined): string | null {
   }
 }
 
+/** Absolute path of an application page, slug URL-encoded. Absolute because a failed POST renders the page at /app/<slug>/<action>. */
+export function appPath(slug: string): string {
+  return `/app/${encodeURIComponent(slug)}`;
+}
+
 export type PageCtx = { token: string; root: string; platform: NodeJS.Platform };
 export type Notice = { tone: "error" | "info"; message: string; hint?: string; retryApplied?: boolean };
 

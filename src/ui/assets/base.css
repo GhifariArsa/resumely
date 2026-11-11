@@ -38,6 +38,8 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
+/* `hidden` must win over display rules such as `button { display: inline-block }` */
+[hidden] { display: none !important; }
 html { color-scheme: light dark; }
 body {
   margin: 0;

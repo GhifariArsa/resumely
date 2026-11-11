@@ -89,3 +89,23 @@ describe("boardPage empty states and toolbar", () => {
     expect(out).toContain('href="/?view=list"');
   });
 });
+
+describe("boardPage regressions", () => {
+  test("an applied application without documents (sent = {}) shows no Sent tag", () => {
+    const rows = all().map((r) => (r.slug === fx.empty ? { ...r, status: "applied" as const, sent: {} } : r));
+    const out = boardPage(rows, { view: "board", filter: {}, total: 4 }, ctx);
+    const empty = rowOf(out, fx.empty);
+    expect(empty).toContain("No documents");
+    expect(empty).not.toContain("Sent");
+    expect(rowOf(out, fx.atlas)).toContain("Sent");
+  });
+
+  test("board and list links encode the slug", () => {
+    const rows = all().map((r) => (r.slug === fx.atlas ? { ...r, slug: "a b#c?d" } : r));
+    for (const view of ["board", "list"] as const) {
+      const out = boardPage(rows, { view, filter: {}, total: 4 }, ctx);
+      expect(out).toContain(`href="/app/a%20b%23c%3Fd"`);
+      expect(out).not.toContain("/app/a b");
+    }
+  });
+});

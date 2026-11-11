@@ -88,4 +88,24 @@ describe("profilePage", () => {
     expect(e).toContain("&lt;script&gt;x&lt;/script&gt;");
     expect(out).not.toContain("<script>x");
   });
+
+  test("one private line is singular, in the entry and the header", () => {
+    const profile = structuredClone(view.profile!);
+    profile.entries = profile.entries.map((e, i) => ({ ...e, privateLines: i === 0 ? 1 : 0 }));
+    profile.aboutPrivateKeys = 1;
+    const out = profilePage({ ...view, profile }, ctx);
+    expect(entryOf(out, profile.entries[0]!.id)).toContain("[private: 1 line withheld]");
+    expect(out).toContain("1 private line withheld from the agent");
+    expect(out).toContain("1 private field in about.md");
+    expect(out).not.toContain("1 lines");
+    expect(out).not.toContain("1 private lines");
+    expect(out).not.toContain("1 private fields");
+  });
+
+  test("usage links encode the slug", () => {
+    const usage = new Map([...view.usage].map(([id, us]) => [id, us.map((u) => ({ ...u, slug: "a b#c?d" }))]));
+    const out = profilePage({ ...view, usage }, ctx);
+    expect(entryOf(out, "exp-atlas-labs")).toContain(`href="/app/a%20b%23c%3Fd?kind=resume&amp;v=2"`);
+    expect(out).not.toContain("/app/a b");
+  });
 });

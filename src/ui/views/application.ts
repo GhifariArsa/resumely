@@ -1,7 +1,7 @@
 import { STATUSES } from "../../application/store";
 import type { TraceRow } from "../../application/trace";
 import type { AppView, DocView, Kind } from "../data";
-import { emptyState, html, noticeBox, page, raw, readyMark, safeHref, STATUS_LABEL, statusPill, tokenField, type Notice, type PageCtx, type SafeHtml } from "../html";
+import { appPath, emptyState, html, noticeBox, page, raw, readyMark, safeHref, STATUS_LABEL, statusPill, tokenField, type Notice, type PageCtx, type SafeHtml } from "../html";
 
 const KIND_LABEL: Record<Kind, string> = { resume: "Resume", "cover-letter": "Cover letter" };
 const CURRENT = raw(' aria-current="page"');
@@ -61,7 +61,7 @@ ${sentLine(view)}
 function notices(view: AppView, ctx: PageCtx, notice: Notice | undefined): SafeHtml {
   const doc = view.doc;
   const retry = notice?.retryApplied
-    ? html`<form class="retry" method="post" action="/app/${view.app.slug}/status">
+    ? html`<form class="retry" method="post" action="${appPath(view.app.slug)}/status">
 ${tokenField(ctx.token)}<input type="hidden" name="status" value="applied"><input type="hidden" name="force" value="1">${hiddenDoc(doc)}
 <button type="submit">Mark as applied anyway</button>
 </form>`
@@ -71,11 +71,12 @@ ${tokenField(ctx.token)}<input type="hidden" name="status" value="applied"><inpu
 }
 
 function docPane(view: AppView, doc: DocView): SafeHtml {
+  const base = appPath(view.app.slug);
   const tabs = html`<nav class="kind-tabs" aria-label="Document">${view.kinds.map(
-    (k) => html`<a href="?kind=${k}"${k === doc.kind ? CURRENT : ""}>${KIND_LABEL[k]}</a>`,
+    (k) => html`<a href="${base}?kind=${k}"${k === doc.kind ? CURRENT : ""}>${KIND_LABEL[k]}</a>`,
   )}</nav>`;
   const versions = html`<nav class="version-strip" aria-label="Versions"><ul>${doc.versions.map(
-    (v) => html`<li><a href="?kind=${doc.kind}&amp;v=${v.version}"${v.version === doc.version ? CURRENT : ""}><span class="version">v${v.version}</span>${readyMark(v.ready)}${v.sent ? html`<span class="tag-sent">Sent</span>` : ""}</a></li>`,
+    (v) => html`<li><a href="${base}?kind=${doc.kind}&amp;v=${v.version}"${v.version === doc.version ? CURRENT : ""}><span class="version">v${v.version}</span>${readyMark(v.ready)}${v.sent ? html`<span class="tag-sent">Sent</span>` : ""}</a></li>`,
   )}</ul></nav>`;
   const label = `${KIND_LABEL[doc.kind]} v${doc.version}`;
   const pdf = doc.pdf
@@ -200,7 +201,7 @@ ${warnings.length ? html`<h3>Warnings</h3>${list(warnings, "warnings")}` : ""}`,
 function templatePanel(view: AppView, doc: DocView, ctx: PageCtx): SafeHtml {
   const current = text(doc.meta.template);
   const form = view.templates.length
-    ? html`<form method="post" action="/app/${view.app.slug}/render" data-busy-label="Rendering…">
+    ? html`<form method="post" action="${appPath(view.app.slug)}/render" data-busy-label="Rendering…">
 ${tokenField(ctx.token)}${hiddenDoc(doc)}
 <label for="template-select">Template</label>
 <select id="template-select" name="template">${view.templates.map(
@@ -218,7 +219,7 @@ function statusPanel(view: AppView, ctx: PageCtx, open: boolean): SafeHtml {
   const notes = strings(meta.notes);
   return panel(
     "Status and notes",
-    html`<form method="post" action="/app/${slug}/status" class="stack">
+    html`<form method="post" action="${appPath(slug)}/status" class="stack">
 ${tokenField(ctx.token)}${hiddenDoc(view.doc)}
 <label for="status-select">Status</label>
 <select id="status-select" name="status" aria-describedby="status-help">${STATUSES.map((s) => html`<option value="${s}"${s === meta.status ? SELECTED : ""}>${STATUS_LABEL[s]}</option>`)}</select>
@@ -227,7 +228,7 @@ ${tokenField(ctx.token)}${hiddenDoc(view.doc)}
 </form>
 <h3>Notes</h3>
 ${notes.length ? html`<ul class="notes">${notes.map((n) => html`<li>${n}</li>`)}</ul>` : html`<p class="meta">No notes yet</p>`}
-<form method="post" action="/app/${slug}/note" class="stack">
+<form method="post" action="${appPath(slug)}/note" class="stack">
 ${tokenField(ctx.token)}${hiddenDoc(view.doc)}
 <label for="note-text">New note</label>
 <textarea id="note-text" name="text" rows="3" maxlength="2000" required></textarea>
@@ -241,7 +242,7 @@ function filesPanel(view: AppView, doc: DocView, ctx: PageCtx): SafeHtml {
   return panel(
     "Files",
     html`<div class="version-dir"><span class="path">${doc.dir}</span> <button type="button" data-copy="${doc.dir}" hidden>Copy path</button></div>
-<form method="post" action="/app/${view.app.slug}/reveal">
+<form method="post" action="${appPath(view.app.slug)}/reveal">
 ${tokenField(ctx.token)}${hiddenDoc(doc)}
 <button type="submit">${ctx.platform === "darwin" ? "Show in Finder" : "Open folder"}</button>
 </form>

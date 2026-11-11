@@ -9,7 +9,7 @@ import { layout, requireDataRoot } from "../paths";
 import { renderApplication } from "../pipeline/rerender";
 import { pdfIn } from "../pipeline/version";
 import { applicationView, boardRows, getApplication, KINDS, profileView, type Kind } from "./data";
-import { errorPage, type Notice, type PageCtx } from "./html";
+import { appPath, errorPage, type Notice, type PageCtx } from "./html";
 import { hostAllowed, newToken, originAllowed, parseFilePath, postAllowed, resolveInside, tokenMatches } from "./security";
 import { applicationPage } from "./views/application";
 import { boardPage } from "./views/board";
@@ -132,6 +132,17 @@ function fileResponse(root: string, pathname: string): Response {
   });
 }
 
+/** Like the CLI, a note keeps its line breaks: spaces collapse within lines, and at most one blank line in a row. */
+function normaliseNote(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[^\S\n]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 type Deps = {
   root: string;
   ctx: PageCtx;
@@ -163,7 +174,7 @@ async function actionResponse(d: Deps, path: string, form: FormData): Promise<Re
     if (kind) q.set("kind", kind);
     if (ver !== undefined) q.set("v", String(ver));
     const qs = q.toString();
-    return redirect(`/app/${encodeURIComponent(app.slug)}${qs ? `?${qs}` : ""}`);
+    return redirect(`${appPath(app.slug)}${qs ? `?${qs}` : ""}`);
   };
   const fail = (status: number, notice: Notice): Response => {
     const view = applicationView(d.root, app.slug, { kind, version }) ?? applicationView(d.root, app.slug);
@@ -174,7 +185,7 @@ async function actionResponse(d: Deps, path: string, form: FormData): Promise<Re
     case "status":
       return statusAction(app, field("status"), form.get("force") === "1", back, fail);
     case "note": {
-      const text = (field("text") ?? "").replace(/\s+/g, " ").trim();
+      const text = normaliseNote(field("text") ?? "");
       if (!text) return fail(400, { tone: "error", message: "Write a note first" });
       if (text.length > NOTE_LIMIT) return fail(400, { tone: "error", message: `Notes are limited to ${NOTE_LIMIT} characters` });
       addNote(app, text);
@@ -211,12 +222,19 @@ async function actionResponse(d: Deps, path: string, form: FormData): Promise<Re
   }
 }
 
+const APPLY_ANYWAY_HINT = "Re-render or fix it, or mark it as applied anyway";
+
 function statusAction(app: Application, status: string | null, force: boolean, back: () => Response, fail: (status: number, n: Notice) => Response): Response {
   if (status === null || !(STATUSES as readonly string[]).includes(status)) return fail(400, { tone: "error", message: "Unknown status" });
+  // The select defaults to the current status, so saving it unchanged must not re-pin the sent versions or applied_at.
+  if (status === app.meta.status && !force) return back();
   try {
     setStatus(app, status as Status, { force });
   } catch (e) {
-    if (e instanceof UserError) return fail(409, { tone: "error", message: e.message, hint: e.hint, retryApplied: status === "applied" });
+    if (e instanceof UserError) {
+      const retryApplied = status === "applied";
+      return fail(409, { tone: "error", message: e.message, hint: retryApplied ? APPLY_ANYWAY_HINT : e.hint, retryApplied });
+    }
     throw e;
   }
   return back();

@@ -1,6 +1,6 @@
 import { STATUSES, type Status } from "../../application/store";
 import type { BoardRow, VersionSummary } from "../data";
-import { emptyState, html, page, raw, STATUS_LABEL, statusPill, readyMark, type PageCtx, type SafeHtml } from "../html";
+import { appPath, emptyState, html, page, raw, STATUS_LABEL, statusPill, readyMark, type PageCtx, type SafeHtml } from "../html";
 
 type Opts = { view: "board" | "list"; filter: { status?: string; company?: string }; total: number };
 
@@ -33,10 +33,10 @@ const docLabel = (name: string, v: VersionSummary): SafeHtml =>
   html`<span class="doc"><span class="version">${name} v${v.version}</span>${v.ready === false ? html` ${readyMark(false)}` : ""}</span>`;
 
 function boardRow(r: BoardRow): SafeHtml {
-  return html`<a class="app-row" href="/app/${r.slug}">
+  return html`<a class="app-row" href="${appPath(r.slug)}">
 <strong class="company">${r.company}</strong>
 <span class="role">${r.role}</span>
-<span class="docs">${r.resume ? docLabel("Resume", r.resume) : ""}${r.cover ? docLabel("Cover letter", r.cover) : ""}${!r.resume && !r.cover ? html`<span class="meta">No documents</span>` : ""}${r.sent ? html`<span class="tag-sent">Sent</span>` : ""}</span>
+<span class="docs">${r.resume ? docLabel("Resume", r.resume) : ""}${r.cover ? docLabel("Cover letter", r.cover) : ""}${!r.resume && !r.cover ? html`<span class="meta">No documents</span>` : ""}${r.sent?.resume !== undefined || r.sent?.cover_letter !== undefined ? html`<span class="tag-sent">Sent</span>` : ""}</span>
 </a>`;
 }
 
@@ -64,7 +64,7 @@ function listTable(rows: BoardRow[]): SafeHtml {
   return html`<div class="table-scroll" tabindex="0" role="region" aria-label="Applications table"><table class="app-table">
 <thead><tr><th scope="col">Date</th><th scope="col">Company</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Resume</th><th scope="col">Cover letter</th><th scope="col">Sent</th></tr></thead>
 <tbody>
-${rows.map((r) => html`<tr><td class="num">${r.created.slice(0, 10)}</td><td><a href="/app/${r.slug}">${r.company}</a></td><td>${r.role}</td><td>${statusPill(r.status)}</td><td>${v(r.resume)}</td><td>${v(r.cover)}</td><td>${sentText(r)}</td></tr>
+${rows.map((r) => html`<tr><td class="num">${r.created.slice(0, 10)}</td><td><a href="${appPath(r.slug)}">${r.company}</a></td><td>${r.role}</td><td>${statusPill(r.status)}</td><td>${v(r.resume)}</td><td>${v(r.cover)}</td><td>${sentText(r)}</td></tr>
 `)}</tbody>
 </table></div>`;
 }

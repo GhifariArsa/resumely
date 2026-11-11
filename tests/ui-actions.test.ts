@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setStatus } from "../src/application/tracking";
 import { UserError } from "../src/errors";
-import { revealArgv } from "../src/commands/open";
+import { launchDetached, revealArgv } from "../src/commands/open";
 import { layout } from "../src/paths";
 import type { renderApplication } from "../src/pipeline/rerender";
 import { getApplication } from "../src/ui/data";
@@ -81,6 +81,8 @@ describe("status: applying with a not-ready version", () => {
     expect(body).toContain("resume v2 is not ready");
     expect(body).toContain("Mark as applied anyway");
     expect(body).toContain(`name="force" value="1"`);
+    expect(body).not.toContain("--force");
+    expect(body).toContain("Re-render or fix it, or mark it as applied anyway");
     expect(appOf(c.fx.root, c.fx.atlas).meta.status).toBe("drafted");
 
     const forced = await post(c.spy, `/app/${c.fx.atlas}/status`, { status: "applied", force: "1", kind: "resume", v: "2" });
@@ -98,15 +100,69 @@ describe("status: applying with a not-ready version", () => {
   });
 });
 
+describe("status: re-saving the current status", () => {
+  const c = setup();
+  const addReadyResumeV3 = () => {
+    const v3 = join(layout(c.fx.root).applications, c.fx.atlas, "resume", "v3");
+    mkdirSync(v3);
+    writeFileSync(join(v3, "meta.json"), `{"ready":true}`);
+  };
+
+  test("an unchanged applied status keeps the sent versions and applied_at", async () => {
+    addReadyResumeV3();
+    const before = appOf(c.fx.root, c.fx.atlas).meta;
+    expect(before.sent).toEqual({ resume: 2, cover_letter: 1 });
+    const res = await post(c.spy, `/app/${c.fx.atlas}/status`, { status: "applied", kind: "resume", v: "3" });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`/app/${c.fx.atlas}?kind=resume&v=3`);
+    const after = appOf(c.fx.root, c.fx.atlas).meta;
+    expect(after.sent).toEqual({ resume: 2, cover_letter: 1 });
+    expect(after.applied_at).toBe(before.applied_at);
+    expect(after.status).toBe("applied");
+  });
+
+  test("force=1 still re-pins (the explicit retry)", async () => {
+    const res = await post(c.spy, `/app/${c.fx.atlas}/status`, { status: "applied", force: "1" });
+    expect(res.status).toBe(303);
+    expect(appOf(c.fx.root, c.fx.atlas).meta.sent).toEqual({ resume: 3, cover_letter: 1 });
+  });
+});
+
+describe("a failed action's page", () => {
+  const c = setup();
+
+  test("links absolutely, so tabs and versions work from the POST URL", async () => {
+    const actionUrl = `${c.spy.url}app/${c.fx.atlas}/note`;
+    const res = await post(c.spy, `/app/${c.fx.atlas}/note`, { text: " ", kind: "resume", v: "2" });
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    const refs = [...body.matchAll(/(?:href|src|action)="([^"]*)"/g)].map((m) => m[1]!.replaceAll("&amp;", "&"));
+    expect(refs.length).toBeGreaterThan(10);
+    expect(refs.filter((h) => !h.startsWith("/") && !h.startsWith("#"))).toEqual([]);
+    const inApp = refs.filter((h) => h.startsWith("/app/") && !/\/(status|note|render|reveal)$/.test(h));
+    expect(inApp.some((h) => h.includes("kind=cover-letter"))).toBe(true);
+    for (const h of inApp) {
+      const r = await fetch(new URL(h, actionUrl));
+      expect(`${h} ${r.status}`).toBe(`${h} 200`);
+    }
+  });
+});
+
 describe("note", () => {
   const c = setup();
   const notes = () => appOf(c.fx.root, c.fx.atlas).meta.notes;
 
-  test("whitespace is collapsed and the note appended", async () => {
-    const res = await post(c.spy, `/app/${c.fx.atlas}/note`, { text: " called\n back " });
+  test("spaces collapse within lines, newlines are kept, blank lines are capped", async () => {
+    const res = await post(c.spy, `/app/${c.fx.atlas}/note`, { text: "  called \t  back  \r\n\r\n\r\n\r\n  next:\u00a0 call   Friday \n" });
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe(`/app/${c.fx.atlas}`);
-    expect(notes().at(-1)).toEndWith(": called back");
+    expect(notes().at(-1)).toEndWith(": called back\n\nnext: call Friday");
+  });
+
+  test("the notes list keeps the line breaks", async () => {
+    const page = await (await fetch(`${c.spy.url}app/${c.fx.atlas}`)).text();
+    expect(page).toContain("called back\n\nnext: call Friday</li>");
+    expect(readFileSync(join(import.meta.dir, "../src/ui/assets/application.css"), "utf8")).toMatch(/\.notes li\s*\{[^}]*white-space:\s*pre-line/);
   });
 
   test("an empty or too long note is a 400 and adds nothing", async () => {
@@ -259,6 +315,24 @@ describe("unknown application", () => {
   test("POST to a missing slug is a 404", async () => {
     const res = await post(c.spy, "/app/nope/note", { text: "hi" });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("launchDetached", () => {
+  test("returns without waiting for the process (xdg-open can block until the file manager closes)", async () => {
+    const started = performance.now();
+    launchDetached(["sleep", "3"], "warning: unused");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test("warns when the command can't start", async () => {
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      launchDetached(["/nonexistent/resumely-file-manager"], "warning: couldn't open the file manager");
+      expect(logged.mock.calls.map((c) => String(c[0]))).toEqual(["warning: couldn't open the file manager"]);
+    } finally {
+      logged.mockRestore();
+    }
   });
 });
 
