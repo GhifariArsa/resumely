@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
@@ -133,6 +133,24 @@ describe("editor", () => {
     await Bun.write(f, "hello");
     await openInEditor(f, { EDITOR: `bun ${join(fx, "fake-editor-append.ts")}` });
     expect(readFileSync(f, "utf8")).toContain("<!-- edited -->");
+  });
+  test("integration B: an existing editor path with spaces is not split", async () => {
+    const dir = join(root, "my editors");
+    mkdirSync(dir);
+    const ed = join(dir, "fake ed.sh");
+    writeFileSync(ed, `#!/bin/sh\nprintf '\\n<!-- spaced -->\\n' >> "$1"\n`);
+    chmodSync(ed, 0o755);
+    expect(editorArgv({ EDITOR: ed })).toEqual([ed]);
+    expect(editorArgv({ VISUAL: ed, EDITOR: "vi" })).toEqual([ed]);
+    const f = join(root, "x.md");
+    await Bun.write(f, "hello");
+    await openInEditor(f, { EDITOR: ed });
+    expect(readFileSync(f, "utf8")).toContain("<!-- spaced -->");
+  });
+  test("integration B: empty or whitespace-only VISUAL/EDITOR fall through to the next, then vi", () => {
+    expect(editorArgv({ VISUAL: "   ", EDITOR: "nano -w" })).toEqual(["nano", "-w"]);
+    expect(editorArgv({ VISUAL: "", EDITOR: " \t " })).toEqual(["vi"]);
+    expect(editorArgv({ EDITOR: "  code   --wait  " })).toEqual(["code", "--wait"]);
   });
   test("missing editor is a UserError", async () => {
     await expect(openInEditor(join(root, "x.md"), { EDITOR: "no-such-editor-xyz" })).rejects.toThrow('Editor "no-such-editor-xyz" not found');

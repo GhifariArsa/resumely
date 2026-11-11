@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
+import { editorArgv } from "../commands/editor";
 import { UserError } from "../errors";
 import { spawnWithTimeout } from "../proc";
 
@@ -132,8 +133,7 @@ export async function readFromEditor(
   o: { env?: Record<string, string | undefined>; spawn?: (argv: string[]) => Promise<number | null> } = {},
 ): Promise<JobSource> {
   const env = o.env ?? process.env;
-  const editor = env.VISUAL || env.EDITOR || "vi";
-  const argv = existsSync(editor) ? [editor] : editor.trim().split(/\s+/);
+  const argv = editorArgv(env);
   const dir = mkdtempSync(join(tmpdir(), "resumely-job-"));
   try {
     const file = join(dir, "job.md");

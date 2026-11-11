@@ -176,6 +176,13 @@ describe("readFromEditor", () => {
     expect(existsSync(dirname(argv[2]!))).toBe(false);
     expect(j.text).toBe("Hello posting");
   });
+  test("integration B: a whitespace-only VISUAL falls back to EDITOR, and blank both to vi", async () => {
+    const seen: string[][] = [];
+    const spawn = async (a: string[]) => (seen.push(a), await Bun.write(a.at(-1)!, "x"), 0);
+    await readFromEditor({ env: { VISUAL: "  ", EDITOR: "nano -w" }, spawn });
+    await readFromEditor({ env: { VISUAL: " ", EDITOR: "\t" }, spawn });
+    expect(seen.map((a) => a.slice(0, -1))).toEqual([["nano", "-w"], ["vi"]]);
+  });
   test("an EDITOR that is an existing path is not split", async () => {
     let argv: string[] = [];
     await readFromEditor({ env: { EDITOR: FIXTURE }, spawn: async (a) => ((argv = a), await Bun.write(a.at(-1)!, "x"), 0) });

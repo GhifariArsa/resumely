@@ -1,10 +1,15 @@
+import { existsSync } from "node:fs";
 import { UserError } from "../errors";
 
 type Env = Record<string, string | undefined>;
 
-/** `$VISUAL`, else `$EDITOR`, else `vi`, split on whitespace (never passed to a shell). */
+/**
+ * The editor command as argv (never passed to a shell): the first non-blank of `$VISUAL`, `$EDITOR`, else `vi`.
+ * A value naming an existing file is one argument (a path may contain spaces); otherwise it is split on whitespace.
+ */
 export function editorArgv(env: Env = process.env): string[] {
-  return (env.VISUAL || env.EDITOR || "vi").trim().split(/\s+/);
+  const editor = [env.VISUAL, env.EDITOR].find((v) => v?.trim()) ?? "vi";
+  return existsSync(editor) ? [editor] : editor.trim().split(/\s+/);
 }
 
 export async function openInEditor(file: string, env: Env = process.env): Promise<void> {
