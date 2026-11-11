@@ -1,11 +1,15 @@
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Server } from "bun";
-import { STATUSES, type Status } from "../application/store";
+import { addNote, STATUSES, type Application, type Status } from "../application/store";
+import { setStatus } from "../application/tracking";
+import { revealFile } from "../commands/open";
 import { UserError } from "../errors";
 import { layout, requireDataRoot } from "../paths";
-import type { renderApplication } from "../pipeline/rerender";
+import { renderApplication } from "../pipeline/rerender";
+import { pdfIn } from "../pipeline/version";
 import { applicationView, boardRows, getApplication, KINDS, profileView, type Kind } from "./data";
-import { errorPage, type PageCtx } from "./html";
+import { errorPage, type Notice, type PageCtx } from "./html";
 import { hostAllowed, newToken, originAllowed, parseFilePath, postAllowed, resolveInside, tokenMatches } from "./security";
 import { applicationPage } from "./views/application";
 import { boardPage } from "./views/board";
@@ -53,6 +57,7 @@ const FILE_TYPES = {
 
 const NO_MATCH = "No application or version matches this link.";
 const VERSION_PARAM = /^[1-9]\d*$/;
+const NOTE_LIMIT = 2000;
 
 function plain(status: number, body: string, extra: Record<string, string> = {}): Response {
   return new Response(body, { status, headers: { ...COMMON_HEADERS, "Content-Type": "text/plain; charset=utf-8", ...extra } });
@@ -63,6 +68,17 @@ function htmlResponse(status: number, body: string): Response {
     status,
     headers: { ...COMMON_HEADERS, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": CSP },
   });
+}
+
+function redirect(location: string): Response {
+  return new Response(null, { status: 303, headers: { ...COMMON_HEADERS, Location: location } });
+}
+
+/** The generic 500 page: the message is shown, the stack goes to stderr only. */
+function serverError(ctx: PageCtx, e: unknown): Response {
+  const err = e instanceof Error ? e : new Error(String(e));
+  console.error(err.stack ?? err.message);
+  return htmlResponse(500, errorPage(ctx, 500, `Something went wrong: ${err.message}`));
 }
 
 function decodeSegment(s: string): string | null {
@@ -116,9 +132,100 @@ function fileResponse(root: string, pathname: string): Response {
   });
 }
 
-function route(root: string, req: Request, url: URL, ctx: PageCtx): Response {
+type Deps = {
+  root: string;
+  ctx: PageCtx;
+  reveal: (file: string) => Promise<void>;
+  render: (o: Parameters<typeof renderApplication>[0]) => Promise<{ version: number }>;
+};
+
+const ACTION_PATH = /^\/app\/([^/]+)\/(status|note|render|reveal)$/;
+
+/** POST /app/<slug>/<action>. Success is a 303 back to the page; an error re-renders it with a notice. */
+async function actionResponse(d: Deps, path: string, form: FormData): Promise<Response> {
+  const m = ACTION_PATH.exec(path);
+  if (!m) return htmlResponse(404, errorPage(d.ctx, 404, "Nothing here accepts that request."));
+  const slug = decodeSegment(m[1]!);
+  const app = slug === null ? null : getApplication(layout(d.root).applications, slug);
+  if (!app) return htmlResponse(404, errorPage(d.ctx, 404, NO_MATCH));
+
+  const field = (name: string): string | null => {
+    const v = form.get(name);
+    return typeof v === "string" ? v : null;
+  };
+  const k = field("kind");
+  const kind = k !== null && (KINDS as readonly string[]).includes(k) ? (k as Kind) : undefined;
+  const v = field("v");
+  const version = v !== null && VERSION_PARAM.test(v) ? Number(v) : undefined;
+
+  const back = (ver = version): Response => {
+    const q = new URLSearchParams();
+    if (kind) q.set("kind", kind);
+    if (ver !== undefined) q.set("v", String(ver));
+    const qs = q.toString();
+    return redirect(`/app/${encodeURIComponent(app.slug)}${qs ? `?${qs}` : ""}`);
+  };
+  const fail = (status: number, notice: Notice): Response => {
+    const view = applicationView(d.root, app.slug, { kind, version }) ?? applicationView(d.root, app.slug);
+    return view ? htmlResponse(status, applicationPage(view, d.ctx, notice)) : htmlResponse(404, errorPage(d.ctx, 404, NO_MATCH));
+  };
+
+  switch (m[2]) {
+    case "status":
+      return statusAction(app, field("status"), form.get("force") === "1", back, fail);
+    case "note": {
+      const text = (field("text") ?? "").replace(/\s+/g, " ").trim();
+      if (!text) return fail(400, { tone: "error", message: "Write a note first" });
+      if (text.length > NOTE_LIMIT) return fail(400, { tone: "error", message: `Notes are limited to ${NOTE_LIMIT} characters` });
+      addNote(app, text);
+      return back();
+    }
+    case "render": {
+      if (!kind || version === undefined) return fail(400, { tone: "error", message: "Pick a document version to re-render" });
+      const template = field("template");
+      if (!template) return fail(400, { tone: "error", message: "Pick a template" });
+      try {
+        const r = await d.render({ root: d.root, query: app.slug, template, kind, version, open: false });
+        return back(r.version);
+      } catch (e) {
+        if (e instanceof UserError) return fail(400, { tone: "error", message: e.message, hint: e.hint });
+        throw e;
+      }
+    }
+    default: {
+      // reveal
+      const missing = () => fail(404, { tone: "error", message: NO_MATCH });
+      if (!kind || version === undefined) return missing();
+      const dir = join(app.dir, kind, `v${version}`);
+      if (!existsSync(dir) || !statSync(dir).isDirectory()) return missing();
+      let pdf: string;
+      try {
+        pdf = pdfIn(dir);
+      } catch (e) {
+        if (e instanceof UserError) return fail(404, { tone: "error", message: e.message });
+        throw e;
+      }
+      await d.reveal(pdf);
+      return back();
+    }
+  }
+}
+
+function statusAction(app: Application, status: string | null, force: boolean, back: () => Response, fail: (status: number, n: Notice) => Response): Response {
+  if (status === null || !(STATUSES as readonly string[]).includes(status)) return fail(400, { tone: "error", message: "Unknown status" });
+  try {
+    setStatus(app, status as Status, { force });
+  } catch (e) {
+    if (e instanceof UserError) return fail(409, { tone: "error", message: e.message, hint: e.hint, retryApplied: status === "applied" });
+    throw e;
+  }
+  return back();
+}
+
+function route(d: Deps, req: Request, url: URL, form: FormData | null): Response | Promise<Response> {
+  const { root, ctx } = d;
   const path = url.pathname;
-  if (req.method === "POST") return htmlResponse(404, errorPage(ctx, 404, "Nothing here accepts that request."));
+  if (req.method === "POST") return actionResponse(d, path, form!);
   if (path === "/") return boardResponse(root, url.searchParams, ctx);
   if (path === "/profile") return htmlResponse(200, profilePage(profileView(root), ctx));
   const app = /^\/app\/([^/]+)$/.exec(path);
@@ -129,9 +236,11 @@ function route(root: string, req: Request, url: URL, ctx: PageCtx): Response {
   return htmlResponse(404, errorPage(ctx, 404, "There is no page at this address."));
 }
 
-function listen(port: number, fetch: (req: Request, server: Server<undefined>) => Promise<Response>): Server<undefined> | null {
+type Handlers = { fetch: (req: Request, server: Server<undefined>) => Promise<Response>; error: (e: Error) => Response };
+
+function listen(port: number, h: Handlers): Server<undefined> | null {
   try {
-    return Bun.serve({ hostname: "127.0.0.1", port, maxRequestBodySize: 65536, fetch });
+    return Bun.serve({ hostname: "127.0.0.1", port, maxRequestBodySize: 65536, development: false, fetch: h.fetch, error: h.error });
   } catch (e) {
     if ((e as { code?: string }).code === "EADDRINUSE") return null;
     throw e;
@@ -143,16 +252,29 @@ export function startUiServer(o: UiServerOptions): UiServer {
   const root = o.root;
   const token = o.token ?? newToken();
   const ctx: PageCtx = { token, root, platform: process.platform };
+  const render = o.render ?? renderApplication;
+  // One compile at a time: each render waits for the previous one, whether it succeeded or failed.
+  let renderQueue: Promise<unknown> = Promise.resolve();
+  const deps: Deps = {
+    root,
+    ctx,
+    reveal: o.reveal ?? revealFile,
+    render: (opts) => {
+      const run = renderQueue.then(() => render(opts));
+      renderQueue = run.catch(() => {});
+      return run;
+    },
+  };
 
   const fetch = async (req: Request, srv: Server<undefined>): Promise<Response> => {
     const port = srv.port!;
     if (!hostAllowed(req.headers.get("host"), port)) return plain(403, "Forbidden: unexpected Host header");
     if (!originAllowed(req.headers.get("origin"), port)) return plain(403, "Forbidden: cross-origin request");
     if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "POST") return plain(405, "Method not allowed", { Allow: "GET, POST" });
+    let form: FormData | null = null;
     if (req.method === "POST") {
       const denied = () => plain(403, "Forbidden: missing or invalid token");
       if (!postAllowed(req, port)) return denied();
-      let form: FormData;
       try {
         form = await req.formData();
       } catch {
@@ -161,21 +283,20 @@ export function startUiServer(o: UiServerOptions): UiServer {
       if (!tokenMatches(form.get("_token"), token)) return denied();
     }
     try {
-      return route(root, req, new URL(req.url), ctx);
+      return await route(deps, req, new URL(req.url), form);
     } catch (e) {
       if (e instanceof UserError) return htmlResponse(400, errorPage(ctx, 400, e.message, e.hint));
-      const err = e instanceof Error ? e : new Error(String(e));
-      console.error(err.stack ?? err.message);
-      return htmlResponse(500, errorPage(ctx, 500, `Something went wrong: ${err.message}`));
+      return serverError(ctx, e);
     }
   };
+  const handlers: Handlers = { fetch, error: (e) => serverError(ctx, e) };
 
   let server: Server<undefined> | null;
   if (o.port !== undefined) {
-    server = listen(o.port, fetch);
+    server = listen(o.port, handlers);
     if (!server) throw new UserError(`Port ${o.port} is in use`, "Pick another with --port, or omit it");
   } else {
-    server = listen(o.preferredPort ?? DEFAULT_UI_PORT, fetch) ?? listen(0, fetch);
+    server = listen(o.preferredPort ?? DEFAULT_UI_PORT, handlers) ?? listen(0, handlers);
     if (!server) throw new UserError("No free port to listen on", "Pick one with --port");
   }
   const s = server;

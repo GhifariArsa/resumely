@@ -230,8 +230,10 @@ describe("guards", () => {
     expect(readFileSync(toml).equals(before)).toBe(true);
 
     const ok = await post({ text: "x", _token: "tok" });
-    expect(ok.status).not.toBe(403);
-    expect(ok.status).toBe(404);
+    expect(ok.status).toBe(303);
+
+    const unrouted = await get(`/app/${fx.atlas}/delete`, { method: "POST", body: new URLSearchParams({ _token: "tok" }), redirect: "manual" });
+    expect(unrouted.status).toBe(404);
   });
 });
 
