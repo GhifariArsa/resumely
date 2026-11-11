@@ -75,7 +75,7 @@ export function normaliseBody(body: string): string {
 const ENTRY_OWNED = ["highlights", "context"];
 
 /**
- * Live sections with a proposal's merged in: the proposal's preamble replaces the live preamble; each proposal `## `
+ * Live sections with a proposal's sections merged in: the proposal's preamble replaces the live preamble; each proposal `## `
  * section replaces the live section with the same heading in place, or is appended; live sections in `owned` that the
  * proposal lacks are dropped; every other live section, and every `## Private` section, is kept verbatim.
  */
