@@ -8,11 +8,14 @@ import { agencyOf, slugify } from "./slug";
 
 export { slugify, sendReadyName } from "./slug";
 
+export const STATUSES = ["drafted", "applied", "interviewing", "rejected", "offer"] as const;
+export type Status = (typeof STATUSES)[number];
+
 export type ApplicationMeta = {
   company: string;
   role: string;
   created: string;
-  status: "drafted" | "applied" | "interviewing" | "rejected" | "offer";
+  status: Status;
   notes: string[];
   source: { kind: string; url?: string };
   /** Versions actually sent when the status became `applied`. */

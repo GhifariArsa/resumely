@@ -21,7 +21,7 @@ import { formatDoctor, runDoctor } from "./commands/doctor";
 import { openFile } from "./commands/open";
 import { resolveJobInput } from "./job/intake";
 import { moveApplication } from "./application/move";
-import { addNote, findApplication, listApplications } from "./application/store";
+import { addNote, findApplication, listApplications, STATUSES } from "./application/store";
 import { exportApplication, setStatus } from "./application/tracking";
 import { confirmParsed, isInteractive, promptDuplicate } from "./commands/prompt";
 import { savedNotReadyReasons } from "./pipeline/version";
@@ -237,7 +237,6 @@ function dataRoot() {
   return root;
 }
 
-const STATUSES = ["drafted", "applied", "interviewing", "rejected", "offer"] as const;
 
 function doneLine(label: string, kind: "resume" | "cover-letter", appDir: string, d: DocResult): string {
   const base = `done: ${label} v${d.version} → ${d.pdfPath}`;
