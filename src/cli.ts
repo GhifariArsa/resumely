@@ -19,6 +19,7 @@ import { AGENT_ENV, interviewHint, launchInterview } from "./profile/interview";
 import { initDataRoot } from "./commands/init";
 import { formatDoctor, runDoctor } from "./commands/doctor";
 import { openFile } from "./commands/open";
+import { parsePort, runUi } from "./commands/ui";
 import { resolveJobInput } from "./job/intake";
 import { moveApplication } from "./application/move";
 import { addNote, findApplication, listApplications, STATUSES } from "./application/store";
@@ -413,6 +414,16 @@ program
     const { text, failed } = formatDoctor(await runDoctor({ root: resolveDataRoot() }));
     console.log(text);
     if (failed > 0) process.exitCode = 1;
+  });
+
+program
+  .command("ui")
+  .description("Open the local viewer in your browser")
+  .option("--port <n>", "port (default 4317; 0 = any free port)")
+  .option("--no-open", "don't open the browser")
+  .action(async (o: { port?: string; open: boolean }) => {
+    const port = parsePort(o.port);
+    await runUi({ root: dataRoot(), port, open: o.open });
   });
 
 try {

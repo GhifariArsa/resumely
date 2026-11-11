@@ -541,3 +541,67 @@ describe.skipIf(Bun.which("expect") === null)("integration C: Ctrl-C at profile 
     expect((await cli("profile", "review", "--list")).stdout).toContain("1-exp-zed");
   }, 40_000);
 });
+
+describe("ui command", () => {
+  test("rejects a non-numeric --port", async () => {
+    const r = await cli("ui", "--port", "abc");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('Invalid --port "abc"');
+  });
+
+  test("rejects --port above 65535", async () => {
+    const r = await cli("ui", "--port", "70000");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('Invalid --port "70000"');
+  });
+
+  test("an empty data root is a UserError", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "resumely-empty-"));
+    try {
+      const r = await cliEnv({ RESUMELY_HOME: empty }, "ui", "--no-open");
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain("No resumely data root");
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  test("an explicit busy --port exits 1 with a hint", async () => {
+    const blocker = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("x") });
+    try {
+      const r = await cli("ui", "--port", String(blocker.port), "--no-open");
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain(`Port ${blocker.port} is in use`);
+      expect(r.stderr).toContain("hint: Pick another with --port");
+    } finally {
+      blocker.stop(true);
+    }
+  });
+
+  test("serves the board and exits 0 on SIGTERM", async () => {
+    const proc = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "ui", "--port", "0", "--no-open"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    try {
+      const reader = proc.stdout.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      const deadline = Date.now() + 10_000;
+      let url: string | undefined;
+      while (!url && Date.now() < deadline) {
+        const chunk = await Promise.race([reader.read(), Bun.sleep(deadline - Date.now()).then(() => null)]);
+        if (!chunk || chunk.done) break;
+        buf += dec.decode(chunk.value);
+        url = buf.match(/running at (http:\/\/127\.0\.0\.1:\d+\/)/)?.[1];
+      }
+      expect(url).toBeDefined();
+      const res = await fetch(url!);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("Applications");
+      proc.kill("SIGTERM");
+      expect(await proc.exited).toBe(0);
+    } finally {
+      proc.kill("SIGKILL");
+    }
+  }, 20_000);
+});

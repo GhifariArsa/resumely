@@ -157,6 +157,18 @@ Four single-column, ATS-readable templates, each with a matching cover letter. C
 
 `resumely templates list` shows built-in and user templates. `resumely templates new mine --from minimal` copies a template into `<root>/templates/mine/`, where you can edit it (Nunjucks with `((* *))` / `((( )))` delimiters; everything is LaTeX-escaped). `bun run previews` regenerates the preview images.
 
+## Local UI
+
+`resumely ui [--port N] [--no-open]` starts a viewer on `127.0.0.1` and opens it in your browser. The default port is 4317 (an OS-assigned port if that is busy); `--port 0` picks any free port, and an explicit busy port is an error. `--no-open` skips launching the browser. Stop it with Ctrl-C.
+
+Three views:
+
+- **Applications**: a board by status (drafted, applied, interviewing, rejected, offer) or a filterable list.
+- **Application**: the PDF next to its trace (hover a claim to highlight its source entry), gaps and keywords, review, checks, files and the job posting; resume and cover letter, every version.
+- **Profile**: the profile checks, every entry with where it was used, and exactly what the agent sees.
+
+It reads your data root afresh on every request and writes only what the CLI also does: status (`resumely status`), notes (`resumely note`) and re-renders (`resumely render`, always a new version), plus "Show in Finder" / "Open folder". It never writes to `profile/`. It is bound to localhost, checks the `Host` and `Origin` headers, and requires a per-launch token on every change. It makes no network requests and loads no external assets (no web fonts, CDNs or scripts).
+
 ## Doctor
 
 `resumely doctor` checks that the data root and profile load; that each harness is installed and authenticated; that `latexmk` and the engines (pdflatex, xelatex, lualatex) exist; that every template's packages and fonts are available; and that `pdftotext` is present. It exits 1 only when a required check fails (pi is optional). The `pi` preset has no login probe because its provider varies, so doctor reports it as "not checked" with a hint; set `adapters.pi.auth_check` to enable one.
@@ -256,7 +268,7 @@ Opt-in and slow: runs the full pipeline over the fixture postings in `tests/fixt
 
 ## Status
 
-Works now (P1 to P4):
+Works now (P1 to P5):
 
 - `init`, `profile show`, `profile context`
 - Profile building: `profile import` (PDF, DOCX, Markdown, text, HTML, URL), the review inbox (`profile review`), `profile add`, `interview` and `profile lint`
@@ -264,10 +276,9 @@ Works now (P1 to P4):
 - Four templates, `templates list|new`, `doctor`
 - Checkpointed runs with `resume`, opt-in `fallback_harnesses`, locked-down research agent
 - Versioned applications: `ls`, `open`, `render`, `status`, `note`, `mv`, `export`
+- `ui`: local viewer for the board, applications, traces and profile
 - `bun run eval` baseline
 - Private-content withholding
 - claude and codex verified end to end including web research; pi verified with a provider override (research skipped, no web tools)
 
-Coming next:
-
-- P5: a local web viewer, `resumely ui` (plan in [docs/superpowers/plans/](docs/superpowers/plans/)); the wider roadmap is in [design.md](design.md)
+More is planned in the roadmap in [design.md](design.md).
