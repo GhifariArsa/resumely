@@ -45,7 +45,7 @@ function markBlocks(document: Document): void {
   }
 }
 
-function htmlToText(html: string): string {
+export function htmlToText(html: string): string {
   const { document } = parseHTML(html);
   markBlocks(document as unknown as Document);
   let text: string | null | undefined;
@@ -98,17 +98,23 @@ export async function readClipboard(run: (cmd: string[]) => Promise<string> = de
   throw new UserError("Couldn't read the clipboard", "Install pbpaste, wl-paste or xclip, or pass a file instead");
 }
 
-export async function fetchJobUrl(url: string, fetchImpl: typeof fetch = fetch): Promise<JobSource> {
+/** Fetch a page and extract its text. HTTP and network failures become a `UserError` carrying `hint`. */
+export async function fetchPage(url: string, o: { fetchImpl?: typeof fetch; hint: string }): Promise<{ html: string; text: string }> {
+  const fetchImpl = o.fetchImpl ?? fetch;
   let html: string;
   try {
     const res = await fetchImpl(url, { headers: { "User-Agent": "resumely/0.1" }, redirect: "follow", signal: AbortSignal.timeout(15000) });
-    if (!res.ok) throw new UserError(`Couldn't fetch ${url} (HTTP ${res.status})`, CLIP_HINT);
+    if (!res.ok) throw new UserError(`Couldn't fetch ${url} (HTTP ${res.status})`, o.hint);
     html = await res.text();
   } catch (e) {
     if (e instanceof UserError) throw e;
-    throw new UserError(`Couldn't fetch ${url} (${e instanceof Error ? e.message : String(e)})`, CLIP_HINT);
+    throw new UserError(`Couldn't fetch ${url} (${e instanceof Error ? e.message : String(e)})`, o.hint);
   }
-  const text = htmlToText(html);
+  return { html, text: htmlToText(html) };
+}
+
+export async function fetchJobUrl(url: string, fetchImpl: typeof fetch = fetch): Promise<JobSource> {
+  const { html, text } = await fetchPage(url, { fetchImpl, hint: CLIP_HINT });
   if (isThin(text)) {
     throw new UserError(`Couldn't read enough of that page (${wordCount(text)} words)`, CLIP_HINT);
   }
