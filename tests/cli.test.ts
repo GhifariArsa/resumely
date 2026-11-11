@@ -486,3 +486,58 @@ expect eof
     expect(out).not.toContain("ANSWERED");
   }, 30_000);
 });
+
+/** Run an expect script that spawns the CLI, waits for `prompt`, sends Ctrl-C and reports how the CLI ended. */
+async function ctrlCAt(args: string[], prompt: string): Promise<{ log: string; elapsedMs: number; wait: string }> {
+  const exp = join(root, "ctrl-c.exp");
+  const log = join(root, "ctrl-c.log");
+  writeFileSync(exp, `set timeout 20
+log_file -noappend ${log}
+spawn bun ${join(import.meta.dir, "../src/cli.ts")} ${args.join(" ")}
+expect "${prompt}"
+set t0 [clock milliseconds]
+send "\\003"
+set timeout 5
+expect {
+  eof {}
+  timeout { puts "RESULT HUNG"; exit 1 }
+}
+set t1 [clock milliseconds]
+puts "RESULT [expr {$t1 - $t0}] [wait]"
+`);
+  const p = Bun.spawn(["expect", exp], {
+    env: { ...process.env, RESUMELY_HOME: root, FAKE_HARNESS_SCRIPT: join(root, "script.json") },
+    stdin: "ignore", stdout: "pipe", stderr: "pipe",
+  });
+  const out = await new Response(p.stdout).text();
+  await p.exited;
+  const m = out.match(/RESULT (\d+) (.*)/);
+  if (!m) throw new Error(`the CLI did not exit within 5 s of Ctrl-C: ${out.trim()}`);
+  return { log: readFileSync(log, "utf8"), elapsedMs: Number(m[1]), wait: m[2]!.trim() };
+}
+/** Exit code 130, or killed by SIGINT (what a shell reports as 130). */
+const interrupted = (wait: string) => / 0 130$/.test(wait) || /CHILDKILLED SIGINT/.test(wait);
+
+describe.skipIf(Bun.which("expect") === null || !hasLatex)("integration C: Ctrl-C at apply prompts", () => {
+  test("Ctrl-C at Continue? [Y/n] exits 130 promptly and leaves no running run", async () => {
+    const r = await ctrlCAt(["apply", jobFile, "--review", "--no-open"], "Continue?");
+    expect(r.wait).toMatch(/ 0 130$/);
+    expect(r.elapsedMs).toBeLessThanOrEqual(2000);
+    const states = readdirSync(layout(root).runs).map((d) => JSON.parse(readFileSync(join(layout(root).runs, d, "state.json"), "utf8")));
+    expect(states).toHaveLength(1);
+    expect(states[0].status).not.toBe("running");
+  }, 40_000);
+});
+
+describe.skipIf(Bun.which("expect") === null)("integration C: Ctrl-C at profile review", () => {
+  test("Ctrl-C at the review prompt exits promptly and keeps the proposal pending", async () => {
+    const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: new Blob([JSON.stringify({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] })]), stdout: "pipe", stderr: "pipe",
+    });
+    expect(await add.exited).toBe(0);
+    const r = await ctrlCAt(["profile", "review"], "uit: ");
+    expect(interrupted(r.wait)).toBe(true);
+    expect(r.elapsedMs).toBeLessThanOrEqual(2000);
+    expect((await cli("profile", "review", "--list")).stdout).toContain("1-exp-zed");
+  }, 40_000);
+});
