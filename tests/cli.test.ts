@@ -180,3 +180,47 @@ describe("profile add", () => {
     expect(r.stdout).toContain("nothing new");
   });
 });
+
+describe("profile review", () => {
+  const env = () => ({ ...process.env, RESUMELY_HOME: root });
+  async function run(stdin: string | undefined, ...args: string[]) {
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), ...args], {
+      env: env(), stdin: stdin === undefined ? "ignore" : new Blob([stdin]), stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    return { stdout, stderr, code };
+  }
+  const add = (title: string, org: string) => run(JSON.stringify({ type: "experience", title, org, start: "2020-01", end: "2021-01", bullets: ["Did a thing"] }), "profile", "add", "--json", "-");
+
+  test("non-TTY without flags exits 1 with a hint", async () => {
+    const r = await run(undefined, "profile", "review");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("--accept-all");
+  });
+  test("--list shows staged proposals; --accept applies", async () => {
+    await add("Engineer", "Acme");
+    await add("Designer", "Beta Co");
+    const l = await run(undefined, "profile", "review", "--list");
+    expect(l.stdout).toContain("1-exp-acme");
+    expect(l.stdout).toContain("2-exp-beta-co");
+    const a = await run(undefined, "profile", "review", "--accept", "1");
+    expect(a.code).toBe(0);
+    expect(a.stdout).toContain("accepted 1-exp-acme");
+    expect((await run(undefined, "profile", "show", "exp-acme")).code).toBe(0);
+  });
+  test("--accept-all leaves duplicates pending", async () => {
+    await add("Engineer", "Acme");
+    await run(JSON.stringify({ type: "experience", title: "Senior Software Engineer", org: "Atlas Labs", start: "2023-03", end: "present", bullets: ["x"] }), "profile", "add", "--json", "-");
+    const r = await run(undefined, "profile", "review", "--accept-all");
+    expect(r.stdout).toContain("accepted 1-exp-acme");
+    expect(r.stdout).toContain("needs a decision");
+    expect((await run(undefined, "profile", "review", "--list")).stdout).toContain("duplicate");
+  });
+  test("--as needs exactly one --accept", async () => {
+    await add("Engineer", "Acme");
+    await add("Designer", "Beta Co");
+    const r = await run(undefined, "profile", "review", "--accept", "1", "--accept", "2", "--as", "new");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("--as");
+  });
+});

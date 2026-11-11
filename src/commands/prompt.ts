@@ -20,7 +20,7 @@ async function* stdinChunks(): AsyncGenerator<string | Uint8Array> {
   }
 }
 
-function lineReader({ input = stdinChunks(), output = process.stderr }: PromptIO) {
+export function lineReader({ input = stdinChunks(), output = process.stderr }: PromptIO) {
   const chunks = input[Symbol.asyncIterator]();
   const decoder = new TextDecoder();
   let buf = "";

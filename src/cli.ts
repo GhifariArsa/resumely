@@ -6,6 +6,9 @@ import { Command } from "commander";
 import { UserError } from "./errors";
 import { resolveDataRoot, requireDataRoot, layout } from "./paths";
 import { loadProfile } from "./profile/load";
+import { acceptProposal, rejectProposal } from "./profile/accept";
+import { findProposal, listProposals } from "./profile/inbox";
+import { formatInboxList, reviewInbox } from "./profile/review";
 import { parseAddInput, stageAdd, type AddFlags } from "./profile/add";
 import type { Proposal } from "./profile/proposal";
 import { formatEntry, formatProfileContext, formatProfileTree } from "./profile/context";
@@ -54,6 +57,8 @@ profile
   .description("Print exactly what the agent will see (private content withheld)")
   .action(() => console.log(formatProfileContext(load())));
 
+type Decision = { op: "accept" | "reject"; ref: string };
+const decisions: Decision[] = []; // --accept/--reject in command-line order
 const collect = (v: string, prev: string[]) => [...prev, v];
 
 profile
@@ -96,6 +101,50 @@ Example:
     const r = stageAdd(layout(dataRoot()).profile, load(), input, { kind: source as Proposal["source"]["kind"], ref: source });
     if (!r.staged.length) return console.log(`nothing new: ${r.skipped.join("; ") || "already in the profile"}`);
     for (const p of r.staged) console.log(`proposed ${p.pid} (${p.kind} ${p.entry?.id ?? p.kind})`);
+  });
+
+profile
+  .command("review")
+  .description("Review staged proposals: accept, edit or reject them (the only way they reach your profile)")
+  .option("--list", "list pending proposals")
+  .option("--accept <pid>", "accept a proposal (repeatable)", (v: string) => void decisions.push({ op: "accept", ref: v }))
+  .option("--reject <pid>", "reject a proposal (repeatable)", (v: string) => void decisions.push({ op: "reject", ref: v }))
+  .option("--accept-all", "accept every pending proposal except possible duplicates")
+  .option("--as <mode>", "how to accept a duplicate: update or new (with exactly one --accept)")
+  .action(async (o: { list?: boolean; acceptAll?: boolean; as?: string }) => {
+    const pdir = layout(dataRoot()).profile;
+    if (o.list) return console.log(formatInboxList(listProposals(pdir)));
+    if (o.as !== undefined) {
+      if (o.as !== "update" && o.as !== "new") throw new UserError(`Invalid --as "${o.as}"`, "Use update or new");
+      if (decisions.filter((d) => d.op === "accept").length !== 1 || decisions.length !== 1) throw new UserError("--as needs exactly one --accept", "e.g. resumely profile review --accept 3 --as update");
+    }
+    if (!decisions.length && !o.acceptAll) {
+      if (!isInteractive()) throw new UserError("profile review needs an interactive terminal", "Use --list, --accept <pid>, --reject <pid> or --accept-all");
+      await reviewInbox({ profileDir: pdir });
+      return;
+    }
+    const attempt = (fn: () => string) => {
+      try {
+        console.log(fn());
+      } catch (e) {
+        if (!(e instanceof UserError)) throw e;
+        console.error(`error: ${e.message}${e.hint ? ` (${e.hint})` : ""}`);
+        process.exitCode = 1;
+      }
+    };
+    for (const d of decisions) {
+      attempt(() => {
+        const p = findProposal(pdir, d.ref);
+        if (d.op === "reject") return rejectProposal(pdir, p), `rejected ${p.pid}`;
+        return `accepted ${p.pid} → profile/${acceptProposal(pdir, p, { as: o.as as "update" | "new" | undefined }).file}`;
+      });
+    }
+    if (o.acceptAll) {
+      for (const p of listProposals(pdir)) {
+        if (p.kind === "duplicate") console.log(`needs a decision: ${p.pid} (resumely profile review --accept ${p.pid} --as update|new)`);
+        else attempt(() => `accepted ${p.pid} → profile/${acceptProposal(pdir, p).file}`);
+      }
+    }
   });
 
 const progress = (m: string) => console.error(m);
