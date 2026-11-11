@@ -113,3 +113,9 @@ export function parseEvalArgs(argv: string[]): { harnesses?: string[]; jobs?: st
   const jobs = list(value("--jobs"));
   return { ...(harnesses ? { harnesses } : {}), ...(jobs ? { jobs } : {}), out: value("--out") ?? `eval-results/${stamp}`, stretch: argv.includes("--stretch") };
 }
+
+/** The run directory to summarise: the result's run, else the first run on disk (none when `runsDir` doesn't exist, e.g. apply failed before creating it). */
+export function runDirOf(runsDir: string, runId?: string): string | undefined {
+  const id = runId ?? (existsSync(runsDir) ? readdirSync(runsDir)[0] : undefined);
+  return id ? join(runsDir, id) : undefined;
+}

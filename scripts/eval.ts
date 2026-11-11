@@ -13,7 +13,7 @@ import { readJobFile } from "../src/job/intake";
 import { layout, resolveDataRoot } from "../src/paths";
 import { applyJob, type ApplyResult } from "../src/pipeline/apply";
 import { spawnWithTimeout } from "../src/proc";
-import { formatSummary, parseEvalArgs, summarizeRun, type EvalRow } from "./eval-lib";
+import { formatSummary, parseEvalArgs, runDirOf, summarizeRun, type EvalRow } from "./eval-lib";
 
 const args = parseEvalArgs(process.argv.slice(2));
 const fx = join(import.meta.dir, "../tests/fixtures");
@@ -91,9 +91,8 @@ for (const harness of available) {
     } catch (e) {
       error = e;
     }
-    const runs = layout(root).runs;
-    const runId = result?.runId ?? readdirSync(runs)[0];
-    rows.push(summarizeRun({ harness, job, wallMs: Date.now() - started, result, error, runDir: runId ? join(runs, runId) : undefined, expect: expectation }));
+    const runDir = runDirOf(layout(root).runs, result?.runId);
+    rows.push(summarizeRun({ harness, job, wallMs: Date.now() - started, result, error, runDir, expect: expectation }));
   }
 }
 

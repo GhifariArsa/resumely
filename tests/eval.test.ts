@@ -1,12 +1,12 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
 import { isThin, readJobFile } from "../src/job/intake";
 import { layout } from "../src/paths";
 import { applyJob } from "../src/pipeline/apply";
-import { formatSummary, parseEvalArgs, summarizeRun, type EvalRow } from "../scripts/eval-lib";
+import { formatSummary, parseEvalArgs, runDirOf, summarizeRun, type EvalRow } from "../scripts/eval-lib";
 
 const fx = join(import.meta.dir, "fixtures");
 const hasLatex = Bun.which("latexmk") !== null;
@@ -87,6 +87,16 @@ describe("summarizeRun without a result", () => {
     const row = summarizeRun({ harness: "h", job: "j", wallMs: 5, error: new Error("boom") });
     expect(row).toMatchObject({ ok: false, error: "boom", gaps: 0, fabrication_flags: 0, expect_ok: null });
     expect(row.resume).toBeUndefined();
+  });
+});
+
+describe("runDirOf", () => {
+  test("the result's run, else the only run on disk, else undefined (also when the runs dir is missing)", () => {
+    const runs = join(mkdtempSync(join(tmpdir(), "resumely-evalruns-")), ".runs");
+    expect(runDirOf(runs)).toBeUndefined();
+    expect(runDirOf(runs, "r9")).toBe(join(runs, "r9"));
+    mkdirSync(join(runs, "r1"), { recursive: true });
+    expect(runDirOf(runs)).toBe(join(runs, "r1"));
   });
 });
 
