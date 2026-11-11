@@ -34,6 +34,9 @@ export interface StepCache {
 /** Failure kinds where another harness might succeed. `invalid_output` and `unknown` never fall back. */
 const FALLBACK_KINDS: HarnessErrorKind[] = ["not_installed", "auth", "rate_limit", "timeout"];
 
+/** The harness could not run at all (not installed, auth, rate limit, timeout): retrying later, or elsewhere, may succeed. */
+export const harnessUnavailable = (e: unknown): e is HarnessError => e instanceof HarnessError && FALLBACK_KINDS.includes(e.kind);
+
 const inlinePrompt = (instructions: string, files: Record<string, string>, outFile: string): string =>
   instructions +
   Object.entries(files)

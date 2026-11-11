@@ -592,6 +592,28 @@ describe.skipIf(!hasLatex)("multi-role postings and agency postings", () => {
     expect(r.warnings).toContain('--role "Designer" is not one of the roles parsed from the posting (Senior Backend Engineer, Staff Backend Engineer)');
   }, 120_000);
 
+  test("--role adding to an existing application (--into or 'existing') targets that role without renaming the app", async () => {
+    const input = { ...(await job()), kind: "url" as const, url: "https://jobs.test/multi" };
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const first = await resumeOnly({ input });
+    const writtenRole = (runId: string) => readJson(join(layout(root).runs, runId, "resume-write", "parsed-job.json")).role;
+    const note = `--role "Staff Backend Engineer": adding to existing application ${first.app.slug}; documents target this role, the application keeps its name and role`;
+
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const viaInto = await resumeOnly({ input, into: first.app, role: "Staff Backend Engineer" });
+    expect(viaInto.app.slug).toBe(first.app.slug);
+    expect(viaInto.app.meta.role).toBe("Senior Backend Engineer");
+    expect(writtenRole(viaInto.runId)).toBe("Staff Backend Engineer");
+    expect(viaInto.warnings).toContain(note);
+
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const viaPrompt = await resumeOnly({ input, role: "Staff Backend Engineer", onDuplicate: async () => "existing" });
+    expect(viaPrompt.app.slug).toBe(first.app.slug);
+    expect(writtenRole(viaPrompt.runId)).toBe("Staff Backend Engineer");
+    expect(viaPrompt.warnings).toContain(note);
+    expect(readJson(join(first.app.dir, "job/parsed.json")).role).toBe("Senior Backend Engineer");
+  }, 180_000);
+
   test("an agency posting skips research and is foldered by the agency", async () => {
     script(full({ parse: [{ "out/parsed-job.json": { ...parsedJob, company: "Confidential (via Hays Recruitment)" } }] }));
     const r = await run();

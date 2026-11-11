@@ -121,8 +121,16 @@ async function intake(o: IntakeOptions, appsDir: string, parse: () => Promise<Pa
   }
   if (!reuse) return { app: createApplication(appsDir, job, o.input), job, warnings };
   saveExtraRaw(reuse, o.input.text);
-  return { app: reuse, job: loadParsed(reuse) ?? job, warnings };
+  const saved = loadParsed(reuse) ?? job;
+  if (!role) return { app: reuse, job: saved, warnings };
+  // §12 "--role overrides": the documents target the role; the existing application is not renamed.
+  if (reuse.meta.role.trim().toLowerCase() !== role.toLowerCase()) {
+    warnings.push(`--role "${role}": adding to existing application ${reuse.slug}; documents target this role, the application keeps its name and role`);
+  }
+  return { app: reuse, job: withRole(saved, role), warnings };
 }
+
+const withRole = (job: ParsedJob, role: string | undefined): ParsedJob => (role ? { ...job, role } : job);
 
 function requireLatexmk(): void {
   if (!Bun.which("latexmk", { PATH: process.env.PATH ?? "" })) {
@@ -262,7 +270,7 @@ async function pipeline(p: Pipeline): Promise<ApplyResult> {
   };
   const savedJob = p.app ? loadParsed(p.app) : null;
   if (savedJob) onProgress?.("parse: reused from checkpoint");
-  const taken = p.app ? { app: p.app, job: savedJob ?? (await parse()), warnings: [] as string[] } : await intake({ ...p, role: opt.role }, l.applications, parse);
+  const taken = p.app ? { app: p.app, job: withRole(savedJob ?? (await parse()), opt.role), warnings: [] as string[] } : await intake({ ...p, role: opt.role }, l.applications, parse);
   const { app, job } = taken;
   cp.setApp(app);
   const warnings = isEnglish(job.language) ? [] : [`job description language is "${job.language}"; v1 is English-only`];

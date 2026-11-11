@@ -258,6 +258,24 @@ describe("refine", () => {
     expect(e.hint).toContain(`(logs: ${join(runDir(), "resume-review-2")})`);
   });
 
+  test("an unknown harness failure in a review is a warning: the document is kept", async () => {
+    script({ "resume-write": [out(resume)], "resume-review-1": [{ $stderr: "segfault in agent", $exit: 2 }] });
+    const r = await go();
+    expect(r.value).toEqual(resume);
+    expect(r.review).toBeNull();
+    expect(r.reviewedFinal).toBe(false);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toStartWith("review failed: fake failed (unknown)");
+  });
+
+  test("an unknown harness failure in a revision is a warning: the last good version is kept", async () => {
+    script({ "resume-write": [out(resume)], "resume-review-1": [rev(revise)], "resume-revise-1": [{ $stderr: "segfault in agent", $exit: 2 }] });
+    const r = await go();
+    expect(r.value).toEqual(resume);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toStartWith("revision rejected: fake failed (unknown)");
+  });
+
   test("an availability failure in a revision fails the document", async () => {
     script({ "resume-write": [out(resume)], "resume-review-1": [rev(revise)] });
     process.env.FAKE_HARNESS_FAIL_STEP = "resume-revise-1";
