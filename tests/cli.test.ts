@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
@@ -171,4 +171,303 @@ describe.skipIf(!hasLatex)("apply flow", () => {
     expect(readdirSync(to).length).toBe(2);
     expect((await cli("export", slug, "--to", to)).code).toBe(1);
   }, 120_000);
+});
+
+describe.skipIf(!hasLatex)("trace and gaps hint", () => {
+  test("apply prints the interview hint; trace reads the stored version", async () => {
+    const r = await cli("apply", jobFile, "--no-open");
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("hint: if any of these are true, add them: resumely interview --focus");
+    const slug = apps()[0]!;
+    const t = await cli("trace", slug);
+    expect(t.code).toBe(0);
+    expect(t.stdout).toContain("resume v1");
+    expect(t.stdout).toContain("exp-atlas-labs");
+    expect((await cli("trace", slug, "--cover")).stdout).toContain("paragraph 1");
+    const j = JSON.parse((await cli("trace", slug, "--json")).stdout);
+    expect(j.kind).toBe("resume");
+    expect(j.rows.length).toBeGreaterThan(0);
+  }, 120_000);
+});
+
+describe("profile add", () => {
+  async function cliIn(stdin: string, ...args: string[]) {
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), ...args], {
+      env: { ...process.env, RESUMELY_HOME: root },
+      stdin: new Blob([stdin]), stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    return { stdout, stderr, code };
+  }
+  const inbox = () => {
+    const dir = join(layout(root).profile, ".inbox");
+    return readdirSync(dir).filter((n) => n.endsWith(".json")).map((n) => JSON.parse(readFileSync(join(dir, n), "utf8")));
+  };
+
+  test("--json - keeps hostile text byte-for-byte and records the source", async () => {
+    const title = 'Lead "R&D" — C# $HOME `x`';
+    const context = "grew 100%\nsecond line";
+    const r = await cliIn(JSON.stringify({ type: "experience", title, org: "Hostile Co", context }), "profile", "add", "--json", "-", "--source", "interview");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toMatch(/^proposed 1-exp-/);
+    const [p] = inbox();
+    expect(p.entry.title).toBe(title);
+    expect(p.entry.context).toBe(context);
+    expect(p.source.kind).toBe("interview");
+  });
+
+  test("a bad flag is one error line", async () => {
+    const r = await cli("profile", "add", "experience", "--title", "X", "--start", "nope");
+    expect(r.code).toBe(1);
+    const lines = r.stderr.split("\n").filter((l) => l.startsWith("error:"));
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toStartWith("error: invalid proposal: start");
+  });
+
+  test("already-known skills stage nothing", async () => {
+    const r = await cli("profile", "add", "skills", "--category", "Languages", "--skill", "Go");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("nothing new");
+  });
+});
+
+describe("profile review", () => {
+  const env = () => ({ ...process.env, RESUMELY_HOME: root });
+  async function run(stdin: string | undefined, ...args: string[]) {
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), ...args], {
+      env: env(), stdin: stdin === undefined ? "ignore" : new Blob([stdin]), stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    return { stdout, stderr, code };
+  }
+  const add = (title: string, org: string) => run(JSON.stringify({ type: "experience", title, org, start: "2020-01", end: "2021-01", bullets: ["Did a thing"] }), "profile", "add", "--json", "-");
+
+  test("non-TTY without flags exits 1 with a hint", async () => {
+    const r = await run(undefined, "profile", "review");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("--accept-all");
+  });
+  test("--list shows staged proposals; --accept applies", async () => {
+    await add("Engineer", "Acme");
+    await add("Designer", "Beta Co");
+    const l = await run(undefined, "profile", "review", "--list");
+    expect(l.stdout).toContain("1-exp-acme");
+    expect(l.stdout).toContain("2-exp-beta-co");
+    const a = await run(undefined, "profile", "review", "--accept", "1");
+    expect(a.code).toBe(0);
+    expect(a.stdout).toContain("accepted 1-exp-acme");
+    expect((await run(undefined, "profile", "show", "exp-acme")).code).toBe(0);
+  });
+  test("--accept-all leaves duplicates pending", async () => {
+    await add("Engineer", "Acme");
+    await run(JSON.stringify({ type: "experience", title: "Senior Software Engineer", org: "Atlas Labs", start: "2023-03", end: "present", bullets: ["x"] }), "profile", "add", "--json", "-");
+    const r = await run(undefined, "profile", "review", "--accept-all");
+    expect(r.stdout).toContain("accepted 1-exp-acme");
+    expect(r.stdout).toContain("needs a decision");
+    expect((await run(undefined, "profile", "review", "--list")).stdout).toContain("duplicate");
+  });
+  test("--as needs exactly one --accept", async () => {
+    await add("Engineer", "Acme");
+    await add("Designer", "Beta Co");
+    const r = await run(undefined, "profile", "review", "--accept", "1", "--accept", "2", "--as", "new");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("--as");
+  });
+});
+
+test("interview on a non-TTY exits 1", async () => {
+  const r = await cli("interview");
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain("interview needs an interactive terminal");
+});
+
+describe("new-user path", () => {
+  const callsFile = () => join(root, "script.json.calls");
+  const proposalsScript = {
+    import: [{
+      "out/proposals.json": {
+        proposals: [
+          { kind: "new", entry: { type: "experience", title: "Staff Engineer", org: "Acme Robotics", start: "2025-01", end: "present", skills: ["Rust"], tags: [], bullets: ["Cut fleet downtime 35% across 120 robots"] }, rationale: "New role" },
+          { kind: "update", target_id: "exp-atlas-labs", entry: { type: "experience", title: "Senior Software Engineer", org: "Atlas Labs", location: "Montreal, QC", start: "2023-03", end: "present", skills: ["TypeScript"], tags: [], bullets: ["Reduced infra spend by 18%"] }, rationale: "Adds a result" },
+        ],
+        skills: { Languages: ["Rust"] },
+        about: null,
+      },
+    }],
+  };
+
+  test("init prints the next steps", async () => {
+    const fresh = mkdtempSync(join(tmpdir(), "resumely-init-"));
+    try {
+      const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "init"], { env: { ...process.env, RESUMELY_HOME: fresh }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const out = await new Response(p.stdout).text();
+      await p.exited;
+      expect(out).toContain("resumely profile import");
+      expect(out).toContain("resumely apply --clip");
+    } finally {
+      rmSync(fresh, { recursive: true, force: true });
+    }
+  });
+
+  test("--help has a Getting started block", async () => {
+    expect((await cli("--help")).stdout).toContain("Getting started:");
+  });
+
+  test("profile import stages proposals; review --accept-all makes them live", async () => {
+    setScript(proposalsScript);
+    const r = await cli("profile", "import", join(fx, "import", "resume.md"));
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("staged 3 proposals");
+    expect(r.stdout).toContain("exp-acme-robotics");
+    expect(r.stdout).toContain("next: resumely profile review");
+    expect(r.stderr).toContain("extracting proposals");
+    expect((await cli("profile", "review", "--accept-all")).code).toBe(0);
+    expect((await cli("profile", "show", "exp-acme-robotics")).code).toBe(0);
+  });
+
+  test("profile import with nothing new says so", async () => {
+    setScript({ import: [{ "out/proposals.json": { proposals: [], skills: {}, about: null } }] });
+    const r = await cli("profile", "import", join(fx, "import", "resume.md"));
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("nothing new found in");
+  });
+
+  test("profile import rejects an unsupported file", async () => {
+    writeFileSync(join(root, "nope.rtf"), "{\\rtf1 hi}");
+    const r = await cli("profile", "import", join(root, "nope.rtf"));
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("hint: Use .pdf");
+  });
+
+  test("profile lint reports, fails on errors, and has --json", async () => {
+    const ok = await cli("profile", "lint");
+    expect(ok.code).toBe(0);
+    expect(ok.stdout).toContain("outcome-less-bullet");
+    expect(Array.isArray(JSON.parse((await cli("profile", "lint", "--json")).stdout))).toBe(true);
+    writeFileSync(join(layout(root).profile, "projects", "routekit.md"), "---\n: [bad\n---\nbody\n");
+    const bad = await cli("profile", "lint");
+    expect(bad.code).toBe(1);
+    expect(bad.stdout).toContain("parse-error");
+  });
+
+  test("apply refuses an empty profile without calling the agent", async () => {
+    for (const sub of ["experience", "projects", "education", "extras"]) {
+      const d = join(layout(root).profile, sub);
+      for (const f of readdirSync(d)) rmSync(join(d, f), { recursive: true, force: true });
+    }
+    const r = await cli("apply", jobFile, "--no-open");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("hint: Run: resumely profile import");
+    expect(existsSync(callsFile())).toBe(false);
+  });
+
+  test("apply on an empty profile with pending proposals points at review", async () => {
+    for (const sub of ["experience", "projects", "education", "extras"]) {
+      const d = join(layout(root).profile, sub);
+      for (const f of readdirSync(d)) rmSync(join(d, f), { recursive: true, force: true });
+    }
+    const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: new Blob([JSON.stringify({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] })]), stdout: "pipe", stderr: "pipe",
+    });
+    await add.exited;
+    const r = await cli("apply", jobFile, "--no-open");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("1 profile proposals awaiting review");
+    expect(r.stderr).toContain("hint: Run: resumely profile review");
+    expect(existsSync(callsFile())).toBe(false);
+  });
+
+  test("apply warns about pending proposals", async () => {
+    const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: new Blob([JSON.stringify({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] })]), stdout: "pipe", stderr: "pipe",
+    });
+    await add.exited;
+    const r = await cli("apply", jobFile, "--no-open");
+    expect(r.stderr).toContain("1 profile proposals awaiting review");
+  });
+});
+
+describe.skipIf(Bun.which("expect") === null)("profile review editor keeps stdin", () => {
+  test("the editor receives keystrokes typed after it opens, and review continues", async () => {
+    const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: new Blob([JSON.stringify({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] })]), stdout: "pipe", stderr: "pipe",
+    });
+    await add.exited;
+    const exp = join(root, "pty.exp");
+    const log = join(root, "pty.log");
+    writeFileSync(exp, `set timeout 20
+log_file -noappend ${log}
+spawn bun ${join(import.meta.dir, "../src/cli.ts")} profile review
+expect "uit: "
+send "e\\r"
+sleep 2
+send "HELLO-FROM-KEYS\\r"
+expect "uit: "
+send "q\\r"
+expect eof
+`);
+    const p = Bun.spawn(["expect", exp], {
+      env: { ...process.env, RESUMELY_HOME: root, EDITOR: `sh ${join(fx, "fake-editor-stdin.sh")}` },
+      stdin: "ignore", stdout: "ignore", stderr: "ignore",
+    });
+    await p.exited;
+    const out = readFileSync(log, "utf8");
+    expect(out).toContain("<!-- typed: HELLO-FROM-KEYS -->");
+    expect(out).toContain("1 still pending");
+  }, 40_000);
+});
+
+describe("final review fixes", () => {
+  const addJson = async (obj: Record<string, unknown>, env: Record<string, string> = {}) => {
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root, ...env }, stdin: new Blob([JSON.stringify(obj)]), stdout: "pipe", stderr: "pipe",
+    });
+    return p.exited;
+  };
+
+  test("I3: --accept-all leaves a new proposal that became a duplicate pending", async () => {
+    await addJson({ type: "experience", title: "Senior Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["A"] });
+    await addJson({ type: "experience", title: "Sr. Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["B"] });
+    const r = await cli("profile", "review", "--accept-all");
+    expect(r.stdout).toContain("accepted 1-exp-acme-robotics");
+    expect(r.stdout).toContain("needs a decision: 2-exp-acme-robotics-2");
+    expect(existsSync(join(layout(root).profile, "experience", "acme-robotics-2.md"))).toBe(false);
+    expect((await cli("profile", "review", "--list")).stdout).toContain("2-exp-acme-robotics-2");
+  });
+
+  test("I5: profile review refuses to decide when run by the interview agent", async () => {
+    expect(await addJson({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] }, { RESUMELY_AGENT: "interview" })).toBe(0);
+    const env = { ...process.env, RESUMELY_HOME: root, RESUMELY_AGENT: "interview" };
+    for (const args of [["--accept", "1"], ["--accept-all"], ["--reject", "1"]]) {
+      const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "review", ...args], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const [stderr, code] = await Promise.all([new Response(p.stderr).text(), p.exited]);
+      expect(code).toBe(1);
+      expect(stderr).toContain("only you can decide");
+    }
+    const list = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "review", "--list"], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    expect(await new Response(list.stdout).text()).toContain("1-exp-zed");
+    expect(existsSync(join(layout(root).profile, "experience", "zed.md"))).toBe(false);
+  });
+});
+
+describe.skipIf(Bun.which("expect") === null)("apply prompts and Ctrl-C", () => {
+  test("I4: a SIGINT handler runs while Continue? [Y/n] is waiting", async () => {
+    const exp = join(root, "sigint.exp");
+    const log = join(root, "sigint.log");
+    writeFileSync(exp, `set timeout 10
+log_file -noappend ${log}
+spawn bun ${join(fx, "prompt-sigint.ts")}
+expect "Continue?"
+sleep 0.5
+send "\\003"
+sleep 1
+send "\\r"
+expect eof
+`);
+    const p = Bun.spawn(["expect", exp], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    await p.exited;
+    const out = readFileSync(log, "utf8");
+    expect(out).toContain("SIGINT-HANDLED");
+    expect(out).not.toContain("ANSWERED");
+  }, 30_000);
 });

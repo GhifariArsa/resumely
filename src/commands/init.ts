@@ -29,16 +29,28 @@ const CONFIG_TOML = `# resumely config. Uncomment and edit to override defaults.
 # check = ["my-agent", "--version"]
 # auth_check = ["my-agent", "whoami"]   # optional login probe, used by doctor
 # model = "my-model"   # optional; without it "--model", "{model}" is dropped
+# interactive_command = ["my-agent", "{prompt}"]   # used by resumely interview
 `;
 
+const PLACEHOLDER = { name: "Your Name", email: "you@example.com", summary: "Write a short professional summary about yourself here." };
+
 const ABOUT_MD = `---
-name: "Your Name"
-email: "you@example.com"
+name: "${PLACEHOLDER.name}"
+email: "${PLACEHOLDER.email}"
 links: []
 ---
 
-Write a short professional summary about yourself here.
+${PLACEHOLDER.summary}
 `;
+
+/** Which of init's about.md placeholders (name, email, summary) are still in place. */
+export function aboutPlaceholders(about: { name: string; email?: string; body: string }): string[] {
+  const out: string[] = [];
+  if (about.name === PLACEHOLDER.name) out.push("name");
+  if (about.email === PLACEHOLDER.email) out.push("email");
+  if (about.body.includes(PLACEHOLDER.summary)) out.push("summary");
+  return out;
+}
 
 const SKILLS_YAML = `# Group your skills by category.
 Languages: []

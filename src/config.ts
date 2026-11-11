@@ -13,6 +13,8 @@ const AdapterConfig = z.object({
   auth_check: z.array(z.string()).optional(),
   /** Substituted for `{model}`; when unset, a bare `{model}` element (and its preceding flag) is dropped. */
   model: z.string().optional(),
+  /** Argv that opens this harness interactively (`resumely interview`); placeholders {prompt}/{workspace}/{inbox}/{model}. */
+  interactive_command: z.array(z.string()).optional(),
 });
 
 const ConfigSchema = z.object({
