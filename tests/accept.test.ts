@@ -212,3 +212,66 @@ describe("final review fixes", () => {
     expect(readFileSync(join(pdir, "skills.yaml"), "utf8")).toBe("Languages: [oops\n");
   });
 });
+
+describe("integration A: partial updates keep live data", () => {
+  const atlas = () => join(pdir, "experience", "atlas-labs.md");
+  const northwind = () => join(pdir, "experience", "northwind.md");
+  const live = (id: string) => loadProfile(pdir).entries.find((e) => e.id === id)!;
+
+  test("A1: frontmatter keys the update leaves out (and empty skills/tags) keep their live values", () => {
+    const p = mk("update", "exp-atlas-labs", { title: "Staff Engineer", bullets: ["Brand new bullet"] }, "exp-atlas-labs");
+    expect(previewProposal(pdir, p)).not.toContain("-location: Montreal, QC");
+    acceptProposal(pdir, p);
+    const e = live("exp-atlas-labs");
+    expect(e.title).toBe("Staff Engineer");
+    expect(e.org).toBe("Atlas Labs");
+    expect(e.location).toBe("Montreal, QC");
+    expect(e.start).toBe("2023-03");
+    expect(e.end).toBe("present");
+    expect(e.skills).toEqual(["TypeScript", "React", "PostgreSQL"]);
+    expect(e.tags).toEqual(["backend", "frontend"]);
+    expect(readFileSync(atlas(), "utf8")).not.toContain("skills: []");
+  });
+
+  test("A1: explicit values replace live ones, including a listed skills array", () => {
+    const p = mk("update", "exp-atlas-labs", { title: "Senior Software Engineer", location: "Remote", skills: ["TypeScript", "Go"], bullets: ["x"] }, "exp-atlas-labs");
+    acceptProposal(pdir, p);
+    const e = live("exp-atlas-labs");
+    expect(e.location).toBe("Remote");
+    expect(e.skills).toEqual(["TypeScript", "Go"]);
+    expect(e.tags).toEqual(["backend", "frontend"]);
+  });
+
+  test("A1: an update with no bullets or context keeps the live body", () => {
+    acceptProposal(pdir, mk("update", "exp-atlas-labs", { title: "Staff Engineer" }, "exp-atlas-labs"));
+    expect(live("exp-atlas-labs").body).toContain("Led a team of 4");
+    acceptProposal(pdir, mk("update", "proj-ledgerly", { type: "project", title: "Ledgerly v2" }, "proj-ledgerly"));
+    expect(live("proj-ledgerly").body).toContain("Open-source double-entry bookkeeping library.");
+  });
+
+  test("A2: the live preamble above ## Highlights survives an update", () => {
+    writeFileSync(atlas(), readFileSync(atlas(), "utf8").replace("\n## Highlights", "\nLed billing at a fintech scale-up.\n\n## Highlights"));
+    acceptProposal(pdir, mk("update", "exp-atlas-labs", { title: "Senior Software Engineer", bullets: ["Brand new bullet"] }, "exp-atlas-labs"));
+    const text = readFileSync(atlas(), "utf8");
+    expect(text).toContain("Led billing at a fintech scale-up.");
+    expect(text.indexOf("Led billing")).toBeLessThan(text.indexOf("## Highlights"));
+    expect(text).toContain("Brand new bullet");
+    expect(text).not.toContain("Led a team of 4");
+  });
+
+  test("A2: bullets kept in the preamble (no ## Highlights) are replaced by the proposal's Highlights", () => {
+    acceptProposal(pdir, mk("update", "exp-northwind", { title: "Software Engineer", bullets: ["New northwind bullet"] }, "exp-northwind"));
+    const text = readFileSync(northwind(), "utf8");
+    expect(text).toContain("## Highlights\n\n- New northwind bullet");
+    expect(text).not.toContain("Built internal REST services");
+  });
+
+  test("A3: Highlights replacing preamble bullets go where the bullets were, above other sections", () => {
+    writeFileSync(northwind(), readFileSync(northwind(), "utf8") + "\n## Notes\n\nOn-call lead for a year.\n");
+    acceptProposal(pdir, mk("update", "exp-northwind", { title: "Software Engineer", bullets: ["New northwind bullet"] }, "exp-northwind"));
+    const text = readFileSync(northwind(), "utf8");
+    expect(text).not.toContain("Built internal REST services");
+    expect(text).toContain("On-call lead for a year.");
+    expect(text.indexOf("## Highlights")).toBeLessThan(text.indexOf("## Notes"));
+  });
+});

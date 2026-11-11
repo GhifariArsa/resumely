@@ -4,7 +4,7 @@ import { parse, stringify } from "yaml";
 import { openInEditor } from "../commands/editor";
 import { lineReader, noReadAheadStdin, type PromptIO } from "../commands/prompt";
 import { UserError } from "../errors";
-import { acceptProposal, bodyOf, entryMarkdown, liveDuplicate, previewProposal, privateSections, rejectProposal } from "./accept";
+import { acceptProposal, asDuplicateOf, bodyOf, entryMarkdown, liveDuplicate, previewProposal, privateSections, rejectProposal } from "./accept";
 import { inboxDir, listProposals, saveProposal, takenIds } from "./inbox";
 import { loadProfile, parseEntryText } from "./load";
 import { AboutChange, ProposedEntry, type Proposal } from "./proposal";
@@ -116,7 +116,10 @@ export async function reviewInbox(o: {
         // A `new` proposal may duplicate an entry accepted earlier (in this review or since it was staged).
         const dupOf = p.kind === "duplicate" ? p.target_id : liveDuplicate(profileDir, p)?.id;
         const dup = dupOf !== undefined;
-        if (p.kind === "new" && dup && noted !== dupOf) out.write(`possible duplicate of ${(noted = dupOf!)}\n`);
+        if (p.kind === "new" && dup && noted !== dupOf) {
+          // Show what [u]pdate would change before asking.
+          out.write(`possible duplicate of ${(noted = dupOf!)}; [u]pdate would apply:\n${previewProposal(profileDir, asDuplicateOf(p, dupOf!), priv).replace(/\n?$/, "\n")}`);
+        }
         const prompt = dup ? `[u]pdate ${dupOf} / [n]ew entry / [e]dit / [r]eject / [s]kip / [q]uit: ` : "[a]ccept [e]dit [r]eject [s]kip [q]uit: ";
         const raw = await reader.ask(prompt);
         if (raw === null) {

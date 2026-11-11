@@ -181,3 +181,30 @@ describe("final review fixes", () => {
     expect(readFileSync(join(pdir, "experience/acme-robotics.md"), "utf8")).toContain("Sr. Engineer");
   });
 });
+
+describe("integration A: partial updates in review", () => {
+  test("A1: accepting a bullet-only update interactively keeps location, skills and tags", async () => {
+    const p = mk("update", "exp-atlas-labs", { title: "Senior Software Engineer", bullets: ["Interview bullet"] }, "exp-atlas-labs");
+    const { r, out } = await run(["a"]);
+    expect(r.accepted).toEqual([p.pid]);
+    expect(out).not.toContain("-location: Montreal, QC");
+    expect(out).not.toContain("-skills:");
+    const text = readFileSync(join(pdir, "experience/atlas-labs.md"), "utf8");
+    expect(text).toContain("location: Montreal, QC");
+    expect(text).toContain("skills: [TypeScript, React, PostgreSQL]");
+    expect(text).toContain("tags: [backend, frontend]");
+    expect(text).toContain("- Interview bullet");
+  });
+
+  test("A4: a new proposal that duplicates a live entry shows the update diff before asking", async () => {
+    mk("new", "exp-acme-robotics", { title: "Senior Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["A"] });
+    mk("new", "exp-acme-robotics-2", { title: "Sr. Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["B"] });
+    const { out } = await run(["a", "s"]);
+    const second = out.slice(out.indexOf("[2/2]"));
+    const diffAt = second.indexOf("--- a/profile/experience/acme-robotics.md");
+    expect(diffAt).toBeGreaterThan(-1);
+    expect(second).toContain("-title: Senior Engineer");
+    expect(second).toContain("+title: Sr. Engineer");
+    expect(diffAt).toBeLessThan(second.indexOf("[u]pdate exp-acme-robotics / [n]ew entry"));
+  });
+});

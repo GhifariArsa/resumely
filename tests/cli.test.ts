@@ -387,6 +387,21 @@ describe("new-user path", () => {
   });
 });
 
+describe("integration A: profile add --update keeps live data", () => {
+  test("A1: a bullet-only --update accepted with --accept keeps location, skills and tags", async () => {
+    const a = await cli("profile", "add", "experience", "--update", "exp-atlas-labs", "--title", "Senior Software Engineer", "--bullet", "Interview bullet");
+    expect(a.code).toBe(0);
+    const r = await cli("profile", "review", "--accept", "1");
+    expect(r.code).toBe(0);
+    const text = readFileSync(join(layout(root).profile, "experience", "atlas-labs.md"), "utf8");
+    expect(text).toContain("location: Montreal, QC");
+    expect(text).toContain("skills: [TypeScript, React, PostgreSQL]");
+    expect(text).toContain("tags: [backend, frontend]");
+    expect(text).not.toContain("skills: []");
+    expect(text).toContain("- Interview bullet");
+  });
+});
+
 describe.skipIf(Bun.which("expect") === null)("profile review editor keeps stdin", () => {
   test("the editor receives keystrokes typed after it opens, and review continues", async () => {
     const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {

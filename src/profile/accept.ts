@@ -71,21 +71,21 @@ export function normaliseBody(body: string): string {
   return joinSections(sections(body));
 }
 
-/** Headings an entry proposal owns: rendered from its bullets/context, dropped from the live file when absent. */
+/** Headings an entry proposal speaks for: rendered from its bullets/context, or (after a review edit) its whole body. */
 const ENTRY_OWNED = ["highlights", "context"];
 
 /**
- * The live body with a proposal's text merged in: the proposal's preamble replaces the live preamble; each proposal
- * `## ` section replaces the live section with the same heading in place, or is appended; live sections in `owned`
- * that the proposal lacks are dropped; every other live section, and every `## Private` section, is kept verbatim.
+ * Live sections with a proposal's merged in: the proposal's preamble replaces the live preamble; each proposal `## `
+ * section replaces the live section with the same heading in place, or is appended; live sections in `owned` that the
+ * proposal lacks are dropped; every other live section, and every `## Private` section, is kept verbatim.
  */
-export function mergeBody(liveBody: string, proposed: string, owned: string[] = []): string {
-  const [pre, ...prop] = sections(proposed).filter((s) => !s.private);
+function mergeSections(live: Section[], proposed: Section[], owned: string[]): string {
+  const [pre, ...prop] = proposed.filter((s) => !s.private);
   const byKey = new Map<string, Section>();
   for (const s of prop) if (!byKey.has(s.key!)) byKey.set(s.key!, s);
   const used = new Set<Section>();
   const out: Section[] = [pre!];
-  for (const s of sections(liveBody).slice(1)) {
+  for (const s of live.slice(1)) {
     const mine = s.private ? undefined : byKey.get(s.key!);
     if (mine) {
       if (!used.has(mine)) out.push(mine);
@@ -96,6 +96,28 @@ export function mergeBody(liveBody: string, proposed: string, owned: string[] = 
   }
   for (const s of prop) if (!used.has(s)) out.push(s);
   return joinSections(out);
+}
+
+/** `liveBody` with `proposed` merged in (see `mergeSections`); used for the about.md summary. */
+export function mergeBody(liveBody: string, proposed: string, owned: string[] = []): string {
+  return mergeSections(sections(liveBody), sections(proposed), owned);
+}
+
+/**
+ * The live entry body with an update proposal merged in. A proposal without bullets (or context) leaves the live
+ * Highlights (or Context) alone; an edited body speaks for both. The live preamble stays unless the proposal has its
+ * own; when the live file has no `## Highlights`, its preamble holds the highlights and is replaced in place by them.
+ */
+function mergeEntryBody(liveBody: string, e: ProposedEntry): string {
+  const proposed = sections(renderBody(e));
+  const owned = e.body !== undefined ? ENTRY_OWNED : ENTRY_OWNED.filter((k) => proposed.some((s) => s.key === k));
+  let live = sections(liveBody);
+  if (!proposed[0]!.text) {
+    const [livePre, ...rest] = live;
+    if (live.some((s) => s.key === "highlights")) proposed[0] = livePre!;
+    else if (livePre!.text) live = [{ key: null, private: false, text: "" }, { ...livePre!, key: "highlights" }, ...rest];
+  }
+  return mergeSections(live, proposed, owned);
 }
 
 /** Merge `extra` private sections (from a review edit) after the body, skipping any the body already has verbatim. */
@@ -123,19 +145,20 @@ export function privateSections(fileText: string): string {
   return out.length ? out.join("\n") + "\n" : "";
 }
 
-function renderedFields(e: ProposedEntry): Record<string, unknown> {
-  const o: Record<string, unknown> = {};
-  for (const k of FM_KEYS) if (k !== "id" && e[k] !== undefined) o[k] = e[k];
-  return o;
+/**
+ * Whether an update proposal sets frontmatter key `k`. An omitted key keeps the live value; so does an empty
+ * skills/tags array, which is what a proposal that does not list them carries (they default to []).
+ */
+function setsKey(e: ProposedEntry, k: (typeof FM_KEYS)[number]): boolean {
+  const v = e[k];
+  return v !== undefined && !(Array.isArray(v) && v.length === 0);
 }
 
 /** True when accepting `e` would not change the live entry. */
 export function sameAsLive(e: ProposedEntry, live: Entry): boolean {
-  const liveFields: Record<string, unknown> = {};
-  for (const k of FM_KEYS) if (k !== "id" && live[k] !== undefined) liveFields[k] = live[k];
-  if (!isDeepStrictEqual(renderedFields(e), liveFields)) return false;
+  for (const k of FM_KEYS) if (k !== "id" && setsKey(e, k) && !isDeepStrictEqual(e[k], live[k])) return false;
   const liveBody = normaliseBody(live.body);
-  if (mergeBody(live.body, renderBody(e), ENTRY_OWNED) === liveBody) return true;
+  if (mergeEntryBody(live.body, e) === liveBody) return true;
   return e.body === undefined && e.bullets.length === 0 && normaliseBody(e.context) === liveBody;
 }
 
@@ -157,13 +180,12 @@ function updatedText(profileDir: string, p: Proposal, privateText?: string): { f
   if (!m) throw new UserError(`${entry.file}: missing YAML frontmatter`, "Start the file with a --- block");
   // Edit the live frontmatter in place so unknown keys and comments survive.
   const doc = parseDocument(m[1]!);
-  for (const k of FM_KEYS) {
-    if (e[k] === undefined) doc.delete(k);
-    else doc.set(k, e[k]);
-  }
+  // Only the keys the proposal sets change; the rest keep their live values.
+  for (const k of FM_KEYS) if (setsKey(e, k)) doc.set(k, e[k]);
   // Only the sections the proposal speaks for change; other live sections and `## Private` stay as they are.
-  const body = withPrivate(mergeBody(text.slice(m[0].length), renderBody(e), ENTRY_OWNED), privateText);
-  const after = `---\n${String(doc).trimEnd()}\n---\n` + (body ? `\n${body}\n` : "");
+  const body = withPrivate(mergeEntryBody(text.slice(m[0].length), e), privateText);
+  // No padding inside `[a, b]`, so keys the update leaves alone are written back as they were.
+  const after = `---\n${doc.toString({ flowCollectionPadding: false }).trimEnd()}\n---\n` + (body ? `\n${body}\n` : "");
   return { file: entry.file, before: text, after };
 }
 
@@ -263,6 +285,11 @@ export function liveDuplicate(profileDir: string, p: Proposal): Entry | null {
   return p.kind === "new" && p.entry ? findLikelyDuplicate(p.entry, loadProfile(profileDir).entries) : null;
 }
 
+/** `p` (a `new` proposal) as a possible duplicate of live entry `id`: what `--as update` would apply. */
+export function asDuplicateOf(p: Proposal, id: string): Proposal {
+  return { ...p, kind: "duplicate", target_id: id, entry: { ...p.entry!, id } };
+}
+
 function acceptNew(profileDir: string, p: Proposal, privateText?: string): { file: string; id: string } {
   let entry = p.entry!;
   const profile = loadProfile(profileDir);
@@ -293,7 +320,7 @@ export function acceptProposal(
   if (p.kind === "new") {
     // Re-checked against the live profile: an earlier accept may have added the same role.
     const dup = liveDuplicate(profileDir, p);
-    if (dup) target = { ...p, kind: "duplicate", target_id: dup.id, entry: { ...p.entry!, id: dup.id } };
+    if (dup) target = asDuplicateOf(p, dup.id);
     else as = undefined;
   }
   if (target.kind === "duplicate" && !as) {
