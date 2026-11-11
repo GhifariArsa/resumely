@@ -1,10 +1,8 @@
 # Task: research the company
 
-Files in this directory:
-- `target.json`: the company to research: `company`, `role`, and `location` and `url` (the job posting's address) when known
-- `company.schema.json`: the JSON Schema your output must satisfy
+The research target (`target.json`: the company to research, its `role`, and `location` and `url` (the job posting's address) when known) and the JSON Schema your output must satisfy (`company.schema.json`) follow below.
 
-Search the web for the company named in `target.json`. Use the company's own site, its engineering blog and recent news.
+Search the web for the company named in the target. Use the company's own site, its engineering blog and recent news.
 
 Collect up to 12 concise facts useful for opening a cover letter: product, customers, recent launches, engineering stack or culture, and mission.
 
@@ -17,4 +15,4 @@ Rules:
 - Fact ids are `co-1`, `co-2`, and so on.
 - If you cannot find reliable information, write fewer facts rather than guessing. When nothing about this company can be verified, an empty `facts` list (and empty `sources`) is the correct answer; say so in `summary`. Never invent a fact or a URL.
 
-Write `out/company.json` matching `company.schema.json`: `company`, `summary` (1-2 sentences), `facts`, `sources`. Write nothing else.
+Output `company.json` matching the schema: `company`, `summary` (1-2 sentences), `facts`, `sources`. Write nothing else.

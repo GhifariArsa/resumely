@@ -3,19 +3,22 @@ import { join } from "node:path";
 import type { AdapterConfig, Config } from "../config";
 import { UserError } from "../errors";
 import { spawnWithTimeout } from "../proc";
+import type { Fallback } from "../pipeline/workspace";
 
 export type { AdapterConfig };
 
 export const PRESETS: Record<"claude" | "codex" | "pi", AdapterConfig> = {
   claude: {
     command: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits", "--allowedTools", "Read Write Edit Glob"],
-    research_command: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits", "--allowedTools", "Read Write Edit Glob WebSearch WebFetch"],
+    research_command: ["claude", "-p", "{prompt}", "--tools", "WebSearch,WebFetch,Write", "--allowedTools", "WebSearch WebFetch Write", "--permission-mode", "acceptEdits", "--strict-mcp-config"],
     check: ["claude", "--version"],
+    auth_check: ["claude", "auth", "status"],
   },
   codex: {
     command: ["codex", "exec", "--skip-git-repo-check", "-s", "workspace-write", "-C", "{workspace}", "{prompt}"],
     research_command: ["codex", "--search", "exec", "--skip-git-repo-check", "-s", "workspace-write", "-C", "{workspace}", "{prompt}"],
     check: ["codex", "--version"],
+    auth_check: ["codex", "login", "status"],
   },
   pi: {
     command: ["pi", "-p", "--no-session", "--tools", "read,write,edit", "{prompt}"],
@@ -53,7 +56,24 @@ export function expandCommand(a: AdapterConfig, vars: { prompt: string; workspac
   return out;
 }
 
-export type HarnessErrorKind = "not_installed" | "auth" | "rate_limit" | "timeout" | "unknown";
+/** Resolve `fallback_harnesses` to adapters, dropping the primary and duplicates. */
+export function resolveFallbacks(cfg: Config, primary: string): Fallback[] {
+  const out: Fallback[] = [];
+  for (const name of cfg.fallback_harnesses) {
+    let adapter: AdapterConfig;
+    try {
+      adapter = resolveAdapter(name, cfg);
+    } catch (e) {
+      if (e instanceof UserError) throw new UserError(`Unknown harness "${name}" in fallback_harnesses`, e.hint);
+      throw e;
+    }
+    if (name === primary || out.some((f) => f.name === name)) continue;
+    out.push({ name, adapter });
+  }
+  return out;
+}
+
+export type HarnessErrorKind = "not_installed" | "auth" | "rate_limit" | "timeout" | "invalid_output" | "unknown";
 
 export class HarnessError extends UserError {
   constructor(
@@ -91,6 +111,8 @@ function hintFor(kind: HarnessErrorKind, name: string, bin: string, out: { stdou
       return "Usage limit reached; retry later or use --harness <other>";
     case "timeout":
       return "Raise timeout_minutes in config.toml";
+    case "invalid_output":
+      return "The agent's output failed validation; see errors.md in the workspace, or retry with --harness <other>";
     default:
       return lastLine(out.stderr) ?? lastLine(out.stdout);
   }

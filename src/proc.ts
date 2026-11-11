@@ -1,3 +1,5 @@
+import { onInterrupt } from "./signals";
+
 export type SpawnResult = {
   stdout: string;
   stderr: string;
@@ -25,6 +27,13 @@ export async function spawnWithTimeout(
     stderr: "pipe",
     stdin: "ignore",
     detached: true,
+  });
+  const unregister = onInterrupt(() => {
+    try {
+      process.kill(-proc.pid, "SIGKILL");
+    } catch {
+      /* already gone */
+    }
   });
   let stdout = "";
   let stderr = "";
@@ -71,6 +80,7 @@ export async function spawnWithTimeout(
       await Promise.race([work, new Promise((res) => (drainTimer = setTimeout(res, DRAIN_MS)))]);
     }
   } finally {
+    unregister();
     clearTimeout(timer);
     clearTimeout(drainTimer);
   }

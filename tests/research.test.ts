@@ -186,3 +186,17 @@ test("renderCompanyMd is deterministic and ordered", () => {
       "## Sources\n\n- https://atlasfreight.example/product\n- https://atlasfreight.example/blog/events\n",
   );
 });
+
+test("research prompt is inline: schema and target embedded, no read instruction", async () => {
+  const ls = join(dir, "ls.jsonl");
+  process.env.FAKE_HARNESS_LS = ls;
+  try {
+    await go({ adapter: { command: ["bun", join(fx, "fake-harness.ts"), "{workspace}", "--prompt", "{prompt}"] } });
+  } finally {
+    delete process.env.FAKE_HARNESS_LS;
+  }
+  const p: string = JSON.parse(readFileSync(ls, "utf8").trim().split("\n")[0]!).prompt;
+  expect(p).toContain('"company": "Atlas Freight"');
+  expect(p).toContain('"facts"');
+  expect(p).not.toContain("Read instructions.md");
+});

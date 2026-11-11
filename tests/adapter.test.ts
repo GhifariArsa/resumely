@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { UserError } from "../src/errors";
 import type { Config } from "../src/config";
-import { HarnessError, PRESETS, classifyFailure, expandCommand, resolveAdapter, runHarness } from "../src/harness/adapter";
+import { HarnessError, PRESETS, classifyFailure, expandCommand, resolveAdapter, resolveFallbacks, runHarness } from "../src/harness/adapter";
+import { validateResearch } from "../src/pipeline/validate";
+import { runAgentStep } from "../src/pipeline/workspace";
 
 const FAKE = resolve(import.meta.dir, "fixtures/fake-harness.ts");
 const tmp = () => mkdtempSync(join(tmpdir(), "resumely-adapter-"));
@@ -229,5 +231,111 @@ describe("runHarness", () => {
     const e = await runHarness({ command: ["sh", "-c", "echo 'please log in' >&2; exit 1"] }, base(tmp())).catch((x) => x);
     expect(e.kind).toBe("auth");
     expect(e.hint).toBe("Log in to t (run it interactively once)");
+  });
+});
+
+describe("robustness", () => {
+  const company = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/company.json"), "utf8"));
+  const fake = (tag: string) => ({ command: ["bun", FAKE, "{workspace}", "--as", tag] });
+  const step = (ws: string, over: Record<string, unknown> = {}) =>
+    runAgentStep({ adapter: fake("a"), name: "a", workspace: ws, instructions: "x", files: {}, outFile: "company.json", validate: validateResearch, timeoutMs: 20000, ...over } as never);
+  const withEnv = async (env: Record<string, string>, fn: () => Promise<void>) => {
+    Object.assign(process.env, env);
+    try {
+      await fn();
+    } finally {
+      for (const k of Object.keys(env)) delete process.env[k];
+    }
+  };
+  const script = (root: string, body: unknown) => {
+    const p = join(root, "script.json");
+    writeFileSync(p, JSON.stringify(body));
+    return p;
+  };
+
+  test("claude research preset is web-only", () => {
+    const c = resolveAdapter("claude", cfg(), { research: true })!.command;
+    expect(c[c.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch,Write");
+    expect(c).toContain("--strict-mcp-config");
+    // Word match: the mandated "acceptEdits" permission mode legitimately contains "Edit".
+    for (const bad of ["Read", "Glob", "Edit", "Bash"]) expect(c.some((x) => x.split(/[\s,]+/).includes(bad))).toBe(false);
+  });
+  test("auth_check presets", () => {
+    expect(PRESETS.codex.auth_check).toEqual(["codex", "login", "status"]);
+    expect(PRESETS.claude.auth_check).toEqual(["claude", "auth", "status"]);
+    expect(PRESETS.pi.auth_check).toBeUndefined();
+  });
+
+  test("resolveFallbacks drops primary and duplicates; unknown throws", () => {
+    const c = { ...cfg(), fallback_harnesses: ["claude", "codex", "claude"] } as Config;
+    expect(resolveFallbacks(c, "claude").map((f) => f.name)).toEqual(["codex"]);
+    const e = (() => {
+      try {
+        resolveFallbacks({ ...cfg(), fallback_harnesses: ["nope"] } as Config, "claude");
+      } catch (x) {
+        return x as UserError;
+      }
+    })();
+    expect(e).toBeInstanceOf(UserError);
+    expect(e!.message).toContain("fallback_harnesses");
+  });
+
+  test("invalid output on every attempt -> invalid_output", async () => {
+    const root = tmp();
+    const s = script(root, { research: [{ "out/company.json": "INVALID" }] });
+    await withEnv({ FAKE_HARNESS_SCRIPT: s }, async () => {
+      const e = await step(join(root, "research")).catch((x) => x);
+      expect(e).toBeInstanceOf(HarnessError);
+      expect(e.kind).toBe("invalid_output");
+      expect(e.message).toBe("Agent output invalid after 3 attempts");
+      expect(e.hint).toStartWith("Inspect ");
+    });
+  });
+
+  test("fallback takes over on rate_limit and logs to stdout.<name>.log", async () => {
+    const root = tmp();
+    const s = script(root, { research: [{ "out/company.json": company }] });
+    const progress: string[] = [];
+    await withEnv({ FAKE_HARNESS_SCRIPT: s, FAKE_HARNESS_FAIL_AS: "a" }, async () => {
+      const ws = join(root, "research");
+      const r = await step(ws, { fallbacks: [{ name: "b", adapter: fake("b") }], onProgress: (m: string) => progress.push(m) });
+      expect(r.harness).toBe("b");
+      expect(validateResearch(r.value).ok).toBe(true);
+      expect(existsSync(join(ws, "stdout.log"))).toBe(true);
+      expect(existsSync(join(ws, "stdout.b.log"))).toBe(true);
+      expect(progress).toContain("a failed (rate_limit); trying b…");
+    });
+  });
+
+  test("no fallbacks -> rate_limit error", async () => {
+    const root = tmp();
+    await withEnv({ FAKE_HARNESS_FAIL_AS: "a" }, async () => {
+      const e = await step(join(root, "research")).catch((x) => x);
+      expect(e.kind).toBe("rate_limit");
+    });
+  });
+
+  test("invalid_output never falls back", async () => {
+    const root = tmp();
+    const s = script(root, { research: [{ "out/company.json": "INVALID" }] });
+    const ls = join(root, "ls.jsonl");
+    await withEnv({ FAKE_HARNESS_SCRIPT: s, FAKE_HARNESS_LS: ls }, async () => {
+      const e = await step(join(root, "research"), { fallbacks: [{ name: "b", adapter: fake("b") }] }).catch((x) => x);
+      expect(e.kind).toBe("invalid_output");
+      const tags = readFileSync(ls, "utf8").trim().split("\n").map((l) => JSON.parse(l).tag);
+      expect(tags).not.toContain("b");
+    });
+  });
+
+  test("inline prompt mode embeds files and the output instruction", async () => {
+    const root = tmp();
+    const s = script(root, { research: [{ "out/company.json": company }] });
+    const ls = join(root, "ls.jsonl");
+    await withEnv({ FAKE_HARNESS_SCRIPT: s, FAKE_HARNESS_LS: ls }, async () => {
+      const a = { command: ["bun", FAKE, "{workspace}", "--prompt", "{prompt}"] };
+      await step(join(root, "research"), { adapter: a, promptMode: "inline", instructions: "DO IT", files: { "target.json": '{"company":"X"}' } });
+      const p: string = JSON.parse(readFileSync(ls, "utf8").trim().split("\n")[0]!).prompt;
+      expect(p).toBe('DO IT\n\n## target.json\n\n```\n{"company":"X"}\n```\n\nWrite out/company.json with your file-writing tool. You do not need to read any files.');
+    });
   });
 });
