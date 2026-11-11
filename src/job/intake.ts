@@ -1,12 +1,13 @@
-import { existsSync } from "node:fs";
-import { extname } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { extname, join } from "node:path";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { UserError } from "../errors";
 import { spawnWithTimeout } from "../proc";
 
 export type JobSource = {
-  kind: "file" | "clipboard" | "url";
+  kind: "file" | "clipboard" | "url" | "editor";
   text: string;
   url?: string;
   path?: string;
@@ -115,9 +116,52 @@ export async function fetchJobUrl(url: string, fetchImpl: typeof fetch = fetch):
   return { kind: "url", url, text, html };
 }
 
-export async function resolveJobInput(arg: string | undefined, opts: { clip?: boolean }): Promise<JobSource> {
+const EDITOR_HEADER = "<!-- resumely: paste the job posting below, then save and close the editor. Leave it empty to cancel. -->";
+
+const defaultSpawn = (argv: string[], env: Record<string, string | undefined>): Promise<number | null> =>
+  Bun.spawn(argv, { stdin: "inherit", stdout: "inherit", stderr: "inherit", env: { ...process.env, ...env } }).exited;
+
+/** Open `$VISUAL`/`$EDITOR` (split into argv, never through a shell) on a temp file and read the pasted posting back. */
+export async function readFromEditor(
+  o: { env?: Record<string, string | undefined>; spawn?: (argv: string[]) => Promise<number | null> } = {},
+): Promise<JobSource> {
+  const env = o.env ?? process.env;
+  const editor = env.VISUAL || env.EDITOR || "vi";
+  const argv = existsSync(editor) ? [editor] : editor.trim().split(/\s+/);
+  const dir = mkdtempSync(join(tmpdir(), "resumely-job-"));
+  try {
+    const file = join(dir, "job.md");
+    writeFileSync(file, `${EDITOR_HEADER}\n\n`);
+    const full = [...argv, file];
+    let code: number | null;
+    try {
+      code = await (o.spawn ?? ((a) => defaultSpawn(a, env)))(full);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new UserError(`Editor not found: ${argv[0]}`, "Set $EDITOR, or use --clip or a file");
+      throw e;
+    }
+    if (code !== 0) throw new UserError(`Editor exited with status ${code}`, "Nothing was saved");
+    const text = readFileSync(file, "utf8")
+      .split(/\r?\n/)
+      .filter((l) => !l.startsWith("<!-- resumely:"))
+      .join("\n")
+      .trim();
+    if (!text) throw new UserError("No job text entered", "Nothing was saved");
+    return { kind: "editor", text };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export async function resolveJobInput(
+  arg: string | undefined,
+  opts: { clip?: boolean; interactive?: boolean; editor?: Parameters<typeof readFromEditor>[0] },
+): Promise<JobSource> {
   if (opts.clip) return readClipboard();
-  if (!arg) throw new UserError("No job given", "resumely apply <url|file> or --clip");
+  if (!arg) {
+    if (opts.interactive) return readFromEditor(opts.editor);
+    throw new UserError("No job given", "resumely apply <url|file>, --clip, or run it in a terminal to paste into $EDITOR");
+  }
   if (/^https?:\/\//i.test(arg)) return fetchJobUrl(arg);
   if (existsSync(arg)) return readJobFile(arg);
   throw new UserError(`Job file not found: ${arg}`, "resumely apply <url|file> or --clip");

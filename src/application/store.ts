@@ -4,7 +4,7 @@ import { parse, stringify } from "smol-toml";
 import { UserError } from "../errors";
 import type { JobSource } from "../job/intake";
 import type { ParsedJob } from "../pipeline/schemas";
-import { slugify } from "./slug";
+import { agencyOf, slugify } from "./slug";
 
 export { slugify, sendReadyName } from "./slug";
 
@@ -29,7 +29,7 @@ function localDate(d: Date): string {
 
 export function createApplication(appsDir: string, job: ParsedJob, src: JobSource, now: Date = new Date()): Application {
   mkdirSync(appsDir, { recursive: true });
-  const base = `${localDate(now)}-${slugify(job.company)}-${slugify(job.role)}`;
+  const base = `${localDate(now)}-${slugify(agencyOf(job.company) ?? job.company)}-${slugify(job.role)}`;
   let slug = base;
   for (let n = 2; existsSync(join(appsDir, slug)); n++) slug = `${base}-${n}`;
   const dir = join(appsDir, slug);

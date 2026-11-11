@@ -37,7 +37,7 @@ const RunStateSchema = z.object({
     research: z.boolean(),
     review: z.boolean(),
     role: z.string().optional(),
-    input: z.object({ kind: z.enum(["file", "clipboard", "url"]), url: z.string().optional(), path: z.string().optional() }),
+    input: z.object({ kind: z.enum(["file", "clipboard", "url", "editor"]), url: z.string().optional(), path: z.string().optional() }),
   }),
   app: z.object({ dir: z.string(), slug: z.string() }).nullable(),
   steps: z.record(z.string(), z.object({ harness: z.string(), fallback: z.boolean(), out: z.string(), finished: z.string() })),

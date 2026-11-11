@@ -564,3 +564,40 @@ test("pdfToOpen: the resume, else the cover letter when only it succeeded", () =
   expect(pdfToOpen({ ...base, cover: doc("/c.pdf") })).toBe("/c.pdf");
   expect(pdfToOpen(base)).toBeUndefined();
 });
+
+describe.skipIf(!hasLatex)("multi-role postings and agency postings", () => {
+  const multi = { ...parsedJob, other_roles: ["Staff Backend Engineer"] };
+
+  test("--role overrides the parsed role: application, slug and parsed.json follow, no role warning", async () => {
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const r = await resumeOnly({ role: "Staff Backend Engineer" });
+    expect(r.app.meta.role).toBe("Staff Backend Engineer");
+    expect(r.app.slug).toEndWith("-staff-backend-engineer");
+    expect(readJson(join(r.app.dir, "job/parsed.json")).role).toBe("Staff Backend Engineer");
+    expect(r.warnings.filter((w) => /other roles|is not one of/.test(w))).toEqual([]);
+    expect(readJson(join(runDir(), "state.json")).options.role).toBe("Staff Backend Engineer");
+  }, 120_000);
+
+  test("without --role, other roles in the posting produce a warning", async () => {
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const r = await resumeOnly();
+    expect(r.app.meta.role).toBe("Senior Backend Engineer");
+    expect(r.warnings).toContain("posting lists other roles: Staff Backend Engineer (pick one with --role)");
+  }, 120_000);
+
+  test("--role matching nothing the posting lists warns", async () => {
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const r = await resumeOnly({ role: "Designer" });
+    expect(r.app.meta.role).toBe("Designer");
+    expect(r.warnings).toContain('--role "Designer" is not one of the roles parsed from the posting (Senior Backend Engineer, Staff Backend Engineer)');
+  }, 120_000);
+
+  test("an agency posting skips research and is foldered by the agency", async () => {
+    script(full({ parse: [{ "out/parsed-job.json": { ...parsedJob, company: "Confidential (via Hays Recruitment)" } }] }));
+    const r = await run();
+    expect(calls()).not.toContain("research");
+    expect(readJson(join(r.app.dir, "resume/v1/meta.json")).research).toBe("skipped");
+    expect(r.app.slug).toContain("hays-recruitment");
+    expect(r.app.meta.company).toBe("Confidential (via Hays Recruitment)");
+  }, 120_000);
+});

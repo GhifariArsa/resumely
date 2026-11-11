@@ -7,6 +7,7 @@ Write `out/parsed-job.json`. It must be valid JSON that conforms to `parsed-job.
 Field guidance:
 - `company`: the hiring company's name as written in the posting. If the posting is from an agency with a confidential client, use "Confidential (via <agency>)".
 - `role`: the job title of the most prominent role.
+- `other_roles`: the other distinct roles the posting advertises when it lists more than one; omit otherwise.
 - `requirements`: the must-have requirements, one short item each.
 - `nice_to_haves`: the preferred or bonus qualifications, one short item each.
 - `keywords`: concrete skills, tools, technologies and domains named in the posting (for example "PostgreSQL", "event-driven architecture"). No soft skills or filler words.

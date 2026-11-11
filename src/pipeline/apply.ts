@@ -53,6 +53,8 @@ export type ApplyOptions = {
   cover?: boolean;
   research?: boolean;
   review?: boolean;
+  /** Override the parsed role (for postings that list several). */
+  role?: string;
   /** After the parse: resolve false to stop (the application is kept). */
   pause?: (job: ParsedJob, likelyGaps: string[]) => Promise<boolean>;
   /** Add versions to this application unconditionally (skips duplicate detection and creation). */
@@ -81,10 +83,10 @@ function loadParsed(app: Application): ParsedJob | null {
  */
 class RunStopped extends UserError {}
 
-type IntakeOptions = Pick<ApplyOptions, "input" | "into" | "onDuplicate">;
+type IntakeOptions = Pick<ApplyOptions, "input" | "into" | "onDuplicate" | "role">;
 
 /** Parse the posting and find or create its application, asking `onDuplicate` about an earlier one. */
-async function intake(o: IntakeOptions, appsDir: string, parse: () => Promise<ParsedJob>): Promise<{ app: Application; job: ParsedJob }> {
+async function intake(o: IntakeOptions, appsDir: string, parse: () => Promise<ParsedJob>): Promise<{ app: Application; job: ParsedJob; warnings: string[] }> {
   const decide = async (existing: Application): Promise<Application | null> => {
     if (!o.onDuplicate) throw new RunStopped(`Already applied: ${existing.slug}`, `Use --into ${existing.slug} to add a version, or --new for a separate application`);
     const choice = await o.onDuplicate(existing);
@@ -104,14 +106,22 @@ async function intake(o: IntakeOptions, appsDir: string, parse: () => Promise<Pa
     reuse = into ? guard(byUrl) : await decide(byUrl);
   }
   if (into && !reuse) reuse = into;
-  const job = (reuse && loadParsed(reuse)) || (await parse());
+  let job = (reuse && loadParsed(reuse)) || (await parse());
+  const warnings: string[] = [];
+  const role = o.role?.trim();
+  if (role) {
+    const known = [job.role, ...(job.other_roles ?? [])];
+    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+    if (!known.some((k) => same(k, role))) warnings.push(`--role "${role}" is not one of the roles parsed from the posting (${known.join(", ")})`);
+    job = { ...job, role };
+  }
   if (!asked && !reuse) {
     const byRole = findDuplicate(appsDir, { company: job.company, role: job.role });
     if (byRole) reuse = await decide(byRole);
   }
-  if (!reuse) return { app: createApplication(appsDir, job, o.input), job };
+  if (!reuse) return { app: createApplication(appsDir, job, o.input), job, warnings };
   saveExtraRaw(reuse, o.input.text);
-  return { app: reuse, job: loadParsed(reuse) ?? job };
+  return { app: reuse, job: loadParsed(reuse) ?? job, warnings };
 }
 
 function requireLatexmk(): void {
@@ -143,6 +153,7 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
     cover: opts.cover !== false,
     research: opts.research !== false,
     review: opts.review !== false,
+    ...(opts.role?.trim() ? { role: opts.role.trim() } : {}),
     input: { kind, ...(url ? { url } : {}), ...(path ? { path } : {}) },
   };
   const cp = RunCheckpoint.create(l.runs, newRunId(), { harness, options, jobText: opts.input.text, profileDir: l.profile });
@@ -249,9 +260,12 @@ async function pipeline(p: Pipeline): Promise<ApplyResult> {
     });
     return value;
   };
-  const { app, job } = p.app ? { app: p.app, job: loadParsed(p.app) ?? (await parse()) } : await intake(p, l.applications, parse);
+  const taken = p.app ? { app: p.app, job: loadParsed(p.app) ?? (await parse()), warnings: [] as string[] } : await intake({ ...p, role: opt.role }, l.applications, parse);
+  const { app, job } = taken;
   cp.setApp(app);
   const warnings = isEnglish(job.language) ? [] : [`job description language is "${job.language}"; v1 is English-only`];
+  warnings.push(...taken.warnings);
+  if (!opt.role && job.other_roles?.length) warnings.push(`posting lists other roles: ${job.other_roles.join(", ")} (pick one with --role)`);
   const profileText = profileTextOf(payload.entries, Object.values(payload.skills).flat());
 
   if (p.pause) {

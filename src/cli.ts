@@ -11,6 +11,7 @@ import { initDataRoot } from "./commands/init";
 import { formatDoctor, runDoctor } from "./commands/doctor";
 import { openFile } from "./commands/open";
 import { resolveJobInput } from "./job/intake";
+import { moveApplication } from "./application/move";
 import { addNote, findApplication, listApplications } from "./application/store";
 import { exportApplication, setStatus } from "./application/tracking";
 import { confirmParsed, isInteractive, promptDuplicate } from "./commands/prompt";
@@ -104,10 +105,11 @@ program
   .option("--no-research", "skip company research")
   .option("--no-review", "skip the review loop")
   .option("--review", "pause after parsing the job to confirm")
+  .option("--role <title>", "use this role when the posting lists several")
   .option("--into <app>", "add versions to an existing application")
   .option("--new", "create a separate application even if one exists")
   .option("--no-open", "don't open the PDF when done")
-  .action(async (input: string | undefined, o: { clip?: boolean; harness?: string; template?: string; stretch?: boolean; pages?: string; cover: boolean; research: boolean; review?: boolean; into?: string; new?: boolean; open: boolean }) => {
+  .action(async (input: string | undefined, o: { clip?: boolean; harness?: string; template?: string; stretch?: boolean; pages?: string; cover: boolean; research: boolean; review?: boolean; role?: string; into?: string; new?: boolean; open: boolean }) => {
     const root = dataRoot();
     if (o.into && o.new) throw new UserError("--into and --new can't be combined");
     let pages: number | undefined;
@@ -118,10 +120,11 @@ program
     const interactive = isInteractive();
     if (o.review === true && !interactive) throw new UserError("--review needs an interactive terminal");
     const into = o.into ? findApplication(layout(root).applications, o.into) : undefined;
-    const src = await resolveJobInput(input, { clip: o.clip });
+    const src = await resolveJobInput(input, { clip: o.clip, interactive });
     const r = await applyJob({
       root, input: src, harness: o.harness, template: o.template, open: o.open, onProgress: progress,
       mode: o.stretch ? "stretch" : "truthful", pages, cover: o.cover, research: o.research, review: o.review !== false,
+      role: o.role,
       pause: o.review === true ? confirmParsed : undefined,
       into,
       onDuplicate: o.new ? async () => "new" : interactive ? promptDuplicate : undefined,
@@ -180,6 +183,18 @@ program
   .action((query: string, text: string[]) => {
     const app = addNote(findApplication(layout(dataRoot()).applications, query), text.join(" "));
     console.log(`${app.slug}: ${app.meta.notes.at(-1)}`);
+  });
+
+program
+  .command("mv <app>")
+  .description("Change an application's company and/or role (renames its folder)")
+  .option("--company <name>", "new company")
+  .option("--role <title>", "new role")
+  .action((query: string, o: { company?: string; role?: string }) => {
+    const root = dataRoot();
+    const app = findApplication(layout(root).applications, query);
+    const moved = moveApplication(root, app, o);
+    console.log(`${app.slug} → ${moved.slug}`);
   });
 
 program

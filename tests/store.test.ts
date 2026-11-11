@@ -1,8 +1,9 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, existsSync, readFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "smol-toml";
+import { agencyOf } from "../src/application/slug";
 import { slugify, sendReadyName, createApplication, listApplications, findApplication, nextVersionDir, latestVersion, findDuplicate, normaliseJobUrl, addNote } from "../src/application/store";
 import { exportApplication, setStatus } from "../src/application/tracking";
 import { formatApplicationList } from "../src/pipeline/apply";
@@ -219,3 +220,18 @@ console.log(out.join(","));`,
   expect(new Set(all).size).toBe(100);
   expect(latestVersion(a, "cover-letter")!.version).toBe(100);
 }, 30000);
+
+test("agencyOf", () => {
+  expect(agencyOf("Confidential (via Hays Recruitment)")).toBe("Hays Recruitment");
+  expect(agencyOf("Atlas Freight")).toBeNull();
+});
+
+test("agency postings are foldered and named by the agency", () => {
+  const d = mkdtempSync(join(tmpdir(), "resumely-agency-"));
+  const company = "Confidential (via Hays Recruitment)";
+  const app = createApplication(d, { company, role: "Senior Backend Engineer", requirements: [], nice_to_haves: [], keywords: [], language: "en" }, { kind: "file", text: "x" }, new Date(2026, 10, 11));
+  expect(app.slug).toBe("2026-11-11-hays-recruitment-senior-backend-engineer");
+  expect(app.meta.company).toBe(company);
+  expect(sendReadyName("{First}_{Last}_{Kind}_{Company}", { name: "Jordan Example" }, "Resume", company)).toBe("Jordan_Example_Resume_HaysRecruitment.pdf");
+  rmSync(d, { recursive: true, force: true });
+});

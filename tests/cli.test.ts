@@ -56,6 +56,22 @@ test("--review on a non-TTY exits 1", async () => {
   expect(r.stderr).toContain("--review needs an interactive terminal");
 });
 
+test("apply with no input on a non-TTY exits 1", async () => {
+  const r = await cli("apply", "--no-open");
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain("No job given");
+});
+
+test("mv renames an application and prints old → new", async () => {
+  const { createApplication } = await import("../src/application/store");
+  const app = createApplication(layout(root).applications, parsedJob, { kind: "file", text: "x" }, new Date(2026, 10, 11));
+  const r = await cli("mv", app.slug, "--company", "Atlas Freight Inc");
+  expect(r.code).toBe(0);
+  expect(r.stdout).toContain(`${app.slug} → 2026-11-11-atlas-freight-inc-senior-backend-engineer`);
+  expect(apps()).toEqual(["2026-11-11-atlas-freight-inc-senior-backend-engineer"]);
+  expect((await cli("mv", "atlas")).stderr).toContain("Nothing to change");
+});
+
 test("resume with no runs exits 1", async () => {
   const r = await cli("resume");
   expect(r.code).toBe(1);
