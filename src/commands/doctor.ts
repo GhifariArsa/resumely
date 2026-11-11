@@ -104,6 +104,29 @@ function harnessNames(config: Config): string[] {
   return [...new Set([config.harness, ...Object.keys(PRESETS), ...Object.keys(config.adapters)])];
 }
 
+/** TeX Live packages that ship the font files built-in templates load (file-name prefix → package). */
+const FONT_PACKAGES: [RegExp, string][] = [
+  [/^SourceSansPro-/i, "sourcesanspro"],
+  [/^texgyretermes-/i, "tex-gyre"],
+];
+
+/** `tlmgr install …` for missing packages and known fonts (a .sty/.cls is named after its package); unknown fonts get a search hint. */
+function installHint(missing: string[], fonts: Set<string>): string {
+  const pkgs = new Set<string>();
+  const unknown: string[] = [];
+  for (const f of missing) {
+    if (!fonts.has(f)) pkgs.add(f.replace(/\.[^.]+$/, ""));
+    else {
+      const pkg = FONT_PACKAGES.find(([re]) => re.test(f))?.[1];
+      if (pkg) pkgs.add(pkg);
+      else unknown.push(f);
+    }
+  }
+  const parts = pkgs.size ? [`tlmgr install ${[...pkgs].join(" ")}`] : [];
+  if (unknown.length) parts.push(`find its package with: ${unknown.map((f) => `tlmgr search --global --file ${f}`).join("; ")}`);
+  return parts.join("; ");
+}
+
 async function templateChecks(root: string, config: Config, probe: Probe, which: (b: string) => string | null): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
   const problems: string[] = [];
@@ -137,7 +160,7 @@ async function templateChecks(root: string, config: Config, probe: Probe, which:
     if (missing.length === 0) {
       checks.push({ group: "Templates", label: t.id, ok: true, required, detail: `${t.packages.length} packages, ${t.fonts.length} fonts` });
     } else {
-      checks.push({ group: "Templates", label: t.id, ok: false, required, detail: `missing ${missing.join(", ")}`, hint: `tlmgr install ${missing.map((f) => f.replace(/\.[^.]+$/, "")).join(" ")}` });
+      checks.push({ group: "Templates", label: t.id, ok: false, required, detail: `missing ${missing.join(", ")}`, hint: installHint(missing, new Set(t.fonts)) });
     }
   }
   for (const p of problems) checks.push({ group: "Templates", label: "template problem", ok: false, required: false, detail: p });

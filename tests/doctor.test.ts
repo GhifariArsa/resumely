@@ -86,6 +86,22 @@ describe("doctor", () => {
     expect(b.text).toContain("hint: tlmgr install fontawesome5");
   });
 
+  test("missing fonts are mapped to their TeX Live packages; an unknown font gets a search hint", async () => {
+    writeFileSync(layout(root).config, 'template = "modern"\n');
+    const modern = await run(fakeProbe(okTable, { without: ["SourceSansPro-Regular.otf", "SourceSansPro-Bold.otf"] }));
+    expect(modern.text).toContain("hint: tlmgr install sourcesanspro\n");
+    writeFileSync(layout(root).config, 'template = "traditional"\n');
+    const trad = await run(fakeProbe(okTable, { without: ["texgyretermes-regular.otf", "geometry.sty"] }));
+    expect(trad.text).toContain("hint: tlmgr install geometry tex-gyre\n");
+
+    const mine = join(layout(root).templates, "mine");
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, "template.toml"), 'id = "mine"\nengine = "xelatex"\nfonts = ["Inter-Regular.otf"]\n');
+    writeFileSync(layout(root).config, 'template = "mine"\n');
+    const user = await run(fakeProbe(okTable));
+    expect(user.text).toContain("hint: find its package with: tlmgr search --global --file Inter-Regular.otf");
+  });
+
   test("no data root", async () => {
     const empty = mkdtempSync(join(tmpdir(), "resumely-doctor-empty-"));
     try {
