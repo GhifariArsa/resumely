@@ -1,0 +1,9 @@
+\begin{center}
+  {\fontsize{26}{30}\selectfont\scshape \cvname{(((about.name)))}}\par
+  \vspace{0.4em}
+((* set sep = "" *))((* if about.location *))(((about.location)))((* set sep = " $\\diamond$ " *))((* endif *))
+((* if about.phone *))(((sep)))(((about.phone)))((* set sep = " $\\diamond$ " *))((* endif *))
+((* if about.email *))(((sep)))\href{mailto:((( raw.about.email | latexUrl )))}{(((about.email)))}((* set sep = " $\\diamond$ " *))((* endif *))
+((* for l in about.links *))(((sep)))\href{((( raw.about.links[loop.index0].url | latexUrl )))}{((( l.url | replace("https://", "") | replace("http://", "") )))}((* set sep = " $\\diamond$ " *))
+((* endfor *))\par
+\end{center}

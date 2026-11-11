@@ -1,0 +1,33 @@
+%-------------------------
+% Cover letter (resumely traditional): header matches the resume, see LICENSE
+%-------------------------
+
+((* include "preamble.tex.njk" *))
+
+\setlength{\parskip}{0.9em}
+\hypersetup{pdfauthor={(((about.name)))}, pdftitle={(((about.name))) — Cover Letter}, pdfsubject={(((job.role))) at (((job.company)))}}
+
+\begin{document}
+
+((* include "header.tex.njk" *))
+
+\vspace{1.2em}
+
+(((date)))
+
+Hiring Team\\
+(((job.company)))
+
+{\bfseries Re: (((job.role)))}
+
+(((letter.greeting)))
+((* for p in letter.paragraphs *))
+
+(((p.text)))
+((* endfor *))
+
+(((letter.closing)))\\[0.6em]
+(((about.name)))
+
+\par\message{RESUMELY-FILL \the\pagetotal\space\the\textheight}
+\end{document}
