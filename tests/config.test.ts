@@ -71,3 +71,15 @@ test("review config defaults and validation", () => {
   expect(c2.banned_phrases).toEqual(["synergy"]);
   expect(c2.adapters.x!.research_command).toEqual(["b", "{prompt}"]);
 });
+
+test("fallback_harnesses defaults to [] and must be a list", () => {
+  const d = mkdtempSync(join(tmpdir(), "resumely-cfg-"));
+  writeFileSync(join(d, "config.toml"), "");
+  expect(loadConfig(d).fallback_harnesses).toEqual([]);
+  writeFileSync(join(d, "config.toml"), 'fallback_harnesses = "codex"\n');
+  expect(() => loadConfig(d)).toThrow(UserError);
+  writeFileSync(join(d, "config.toml"), 'fallback_harnesses = ["codex"]\n[adapters.x]\ncommand = ["a"]\nauth_check = ["a", "whoami"]\n');
+  const c = loadConfig(d);
+  expect(c.fallback_harnesses).toEqual(["codex"]);
+  expect(c.adapters.x!.auth_check).toEqual(["a", "whoami"]);
+});

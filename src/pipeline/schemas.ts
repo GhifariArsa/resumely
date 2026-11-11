@@ -9,6 +9,7 @@ export const ParsedJob = z.object({
   nice_to_haves: z.array(z.string()),
   keywords: z.array(z.string()),
   language: z.string().min(1),
+  other_roles: z.array(z.string()).optional(),
 });
 export type ParsedJob = z.infer<typeof ParsedJob>;
 

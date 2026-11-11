@@ -7,7 +7,9 @@
     "resumely": "src/cli.ts"
   },
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "previews": "bun scripts/previews.ts",
+    "eval": "bun scripts/eval.ts"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

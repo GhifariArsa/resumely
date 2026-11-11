@@ -14,7 +14,10 @@ export type TemplateMeta = {
   description: string;
   engine: "pdflatex" | "xelatex" | "lualatex";
   supports: ("resume" | "cover-letter")[];
+  /** LaTeX files the template needs: a bare name means `<name>.sty`, an entry containing `.` is a file name used as-is (e.g. "moderncv.cls"). */
   packages: string[];
+  /** Font files loaded by file name from TeX Live (fontspec templates). */
+  fonts: string[];
   dir: string;
 };
 
@@ -42,28 +45,42 @@ function readMeta(dir: string): TemplateMeta | undefined {
     engine: t.engine as TemplateMeta["engine"],
     supports: (Array.isArray(t.supports) ? t.supports : ["resume"]) as TemplateMeta["supports"],
     packages: Array.isArray(t.packages) ? (t.packages as string[]) : [],
+    fonts: Array.isArray(t.fonts) ? (t.fonts as string[]) : [],
     dir,
   };
 }
 
-/** Later dirs override earlier ones with the same id. */
-export function listTemplates(dirs: string[]): TemplateMeta[] {
+/**
+ * Later dirs override earlier ones with the same id; sorted by id.
+ * With `problems`, an invalid template.toml is skipped and "<dir>: <message>" is pushed; without it, it throws.
+ */
+export function scanTemplates(dirs: string[], problems?: string[]): TemplateMeta[] {
   const byId = new Map<string, TemplateMeta>();
   for (const d of dirs) {
     if (!existsSync(d)) continue;
     for (const e of readdirSync(d, { withFileTypes: true })) {
       if (!e.isDirectory()) continue;
-      const m = readMeta(join(d, e.name));
-      if (m) byId.set(m.id, m);
+      const dir = join(d, e.name);
+      try {
+        const m = readMeta(dir);
+        if (m) byId.set(m.id, m);
+      } catch (err) {
+        if (!problems || !(err instanceof UserError)) throw err;
+        problems.push(`${dir}: ${err.message}${err.hint ? ` (${err.hint})` : ""}`);
+      }
     }
   }
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export function findTemplate(id: string, dirs: string[]): TemplateMeta {
-  const all = listTemplates(dirs);
+  const problems: string[] = [];
+  const all = scanTemplates(dirs, problems);
   const found = all.find((t) => t.id === id);
-  if (!found) throw new UserError(`Unknown template "${id}"`, `Available templates: ${all.map((t) => t.id).join(", ") || "(none)"}`);
+  if (!found) {
+    const invalid = problems.length ? `; invalid templates: ${problems.join("; ")}` : "";
+    throw new UserError(`Unknown template "${id}"`, `Available templates: ${all.map((t) => t.id).join(", ") || "(none)"}${invalid}`);
+  }
   return found;
 }
 

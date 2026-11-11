@@ -7,6 +7,9 @@ import type { TemplateMeta } from "./render";
 
 const FLAG = { pdflatex: "-pdf", xelatex: "-xelatex", lualatex: "-lualatex" } as const;
 
+/** A cold luaotfload font cache can take minutes on the first LuaLaTeX run. */
+export const DEFAULT_TIMEOUT_MS = { pdflatex: 120_000, xelatex: 120_000, lualatex: 300_000 } as const;
+
 /** `RESUMELY-FILL 523.45pt 700.0pt` -> pagetotal / textheight clamped to 0..1; null if absent or unusable. */
 export function parseFill(log: string): number | null {
   const m = /RESUMELY-FILL\s+(-?[\d.]+)pt\s+(-?[\d.]+)pt/.exec(log.replace(/\n/g, ""));
@@ -22,7 +25,7 @@ export async function compileTex(
   engine: TemplateMeta["engine"],
   opts: { timeoutMs?: number } = {},
 ): Promise<{ pdf: Uint8Array; pages: number; log: string; fill: number | null }> {
-  const timeoutMs = opts.timeoutMs ?? 120_000;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS[engine];
   const dir = mkdtempSync(join(tmpdir(), "resumely-tex-"));
   try {
     writeFileSync(join(dir, "main.tex"), tex);

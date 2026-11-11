@@ -1,0 +1,40 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{fontspec}
+\usepackage{amssymb}
+\usepackage[margin=0.75in,top=0.6in,bottom=0.6in]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+\usepackage{accsupp}
+
+% Fonts are loaded from TeX Live by file name so the template works on any OS
+\setmainfont{texgyretermes}[
+  Extension=.otf,
+  UprightFont=*-regular,
+  BoldFont=*-bold,
+  ItalicFont=*-italic,
+  BoldItalicFont=*-bolditalic,
+  SmallCapsFeatures={Letters=SmallCaps}
+]
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\raggedright
+\raggedbottom
+\urlstyle{same}
+\setlist[itemize]{leftmargin=1.2em,itemsep=0pt,topsep=2pt,parsep=0pt,label={\textbullet}}
+
+% Section heading: bold small caps with a full-width rule below
+\titleformat{\section}{\bfseries\scshape\large}{}{0em}{}[\vspace{-0.3em}\titlerule]
+\titlespacing*{\section}{0pt}{0.8em}{0.5em}
+
+% Entry: heading + location, subheading + dates
+\newcommand{\cventry}[4]{%
+  \par\vspace{0.4em}\noindent
+  {\bfseries #1}\hfill #3\par
+  \noindent{\itshape #2}\hfill{\itshape #4}\par\vspace{0.1em}}
+\newcommand{\cvbullets}[1]{\begin{itemize}#1\end{itemize}}
+
+% Small caps extract as capitals; tag the name with its real text so ATS parsing keeps the case
+\newcommand{\cvname}[1]{\BeginAccSupp{method=pdfstringdef,unicode,ActualText={#1}}#1\EndAccSupp{}}

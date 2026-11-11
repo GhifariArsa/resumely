@@ -1,0 +1,7 @@
+id = "modern"
+name = "Modern"
+description = "Polished single-column resume with accent-coloured headings and an icon contact line, re-implemented from the Awesome-CV design (LPPL 1.3c). Needs LuaLaTeX."
+engine = "lualatex"
+supports = ["resume", "cover-letter"]
+packages = ["fontspec", "amssymb", "accsupp", "xcolor", "geometry", "enumitem", "fontawesome5", "hyperref"]
+fonts = ["SourceSansPro-Regular.otf", "SourceSansPro-Bold.otf", "SourceSansPro-RegularIt.otf", "SourceSansPro-BoldIt.otf", "SourceSansPro-Light.otf"]

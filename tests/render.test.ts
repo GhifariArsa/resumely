@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { latexEscape, latexUrl, unsupportedChars } from "../src/render/latex-escape";
-import { renderResume, findTemplate, listTemplates, builtinTemplatesDir } from "../src/render/render";
+import { renderResume, findTemplate, scanTemplates, builtinTemplatesDir } from "../src/render/render";
 import { loadProfile } from "../src/profile/load";
 import { ResumeContent } from "../src/pipeline/schemas";
 import { resolveResume, type ResolvedResume } from "../src/pipeline/resolve";
@@ -41,6 +41,14 @@ test("unsupportedChars", () => {
 
 test("latexUrl escapes % and # only", () => {
   expect(latexUrl("https://x.com/a%20b#frag?q=1&r=2_z")).toBe("https://x.com/a\\%20b\\#frag?q=1&r=2_z");
+});
+
+test("modern and minimal split the name on any run of whitespace", () => {
+  const odd = { ...about, name: " Jordan  Q.\tExample " };
+  const modern = renderResume(findTemplate("modern", [builtinTemplatesDir()]), { about: odd, resume });
+  expect(modern).toContain("{\\cvlight\\color{muted}Jordan} {\\bfseries Q. Example}");
+  const minimal = renderResume(findTemplate("minimal", [builtinTemplatesDir()]), { about: odd, resume });
+  expect(minimal).toContain("\\name{Jordan}{Q. Example}");
 });
 
 describe("renderResume", () => {
@@ -87,11 +95,11 @@ describe("renderResume", () => {
 });
 
 describe("templates", () => {
-  test("listTemplates: user overrides builtin id", () => {
+  test("scanTemplates: user overrides builtin id", () => {
     const user = mkdtempSync(join(tmpdir(), "tpl-"));
     mkdirSync(join(user, "classic"));
     writeFileSync(join(user, "classic/template.toml"), 'id="classic"\nname="Mine"\ndescription="d"\nengine="xelatex"\nsupports=["resume"]\npackages=[]\n');
-    const l = listTemplates([builtinTemplatesDir(), user]);
+    const l = scanTemplates([builtinTemplatesDir(), user]);
     expect(l.filter((x) => x.id === "classic")).toHaveLength(1);
     expect(l.find((x) => x.id === "classic")!.name).toBe("Mine");
   });

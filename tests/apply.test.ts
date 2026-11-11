@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
 import { layout } from "../src/paths";
 import { applyJob, renderApplication, formatApplicationList, pdfToOpen, type ApplyResult } from "../src/pipeline/apply";
@@ -9,6 +9,7 @@ import { readJobFile, type JobSource } from "../src/job/intake";
 import { findApplication, findDuplicate, listApplications } from "../src/application/store";
 import { UserError } from "../src/errors";
 import { HarnessError } from "../src/harness/adapter";
+import { listRuns, pickResumable } from "../src/pipeline/checkpoint";
 import { loadProfile } from "../src/profile/load";
 import { DEFAULT_BANNED } from "../src/pipeline/banned";
 import { validateCoverLetter } from "../src/pipeline/validate";
@@ -101,6 +102,8 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     const progress: string[] = [];
     const r = await run({ onProgress: (m) => progress.push(m) });
     expect(r.failures).toEqual([]);
+    expect(r.runId).toMatch(/^\d{8}-\d{6}-[a-z0-9]{4}$/);
+    expect(basename(runDir())).toBe(r.runId);
     expect([...calls()].sort()).toEqual(["cover-review-1", "cover-write", "parse", "research", "resume-review-1", "resume-write"]);
     expect(calls().slice(0, 2)).toEqual(["parse", "research"]);
 
@@ -221,6 +224,11 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     expect(e.message).toBe(`Already applied: ${first.app.slug}`);
     expect(e.hint).toBe(`Use --into ${first.app.slug} to add a version, or --new for a separate application`);
     expect(listApplications(layout(root).applications).length).toBe(1);
+    // A duplicate-policy refusal is not resumable: the run is aborted, never the default pick of `resumely resume`.
+    const dupRun = listRuns(layout(root).runs).find((s) => s.run_id !== first.runId)!;
+    expect(dupRun.status).toBe("aborted");
+    expect(dupRun.error).toBeNull();
+    expect(() => pickResumable(layout(root).runs)).toThrow("No failed run to resume");
 
     script(full());
     let seen: string | undefined;
@@ -240,8 +248,11 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     expect(listApplications(layout(root).applications).length).toBe(2);
 
     script(full());
-    await expect(run({ onDuplicate: async () => "abort" })).rejects.toThrow("Aborted");
+    const aborted = (await run({ onDuplicate: async () => "abort" }).catch((x) => x)) as UserError;
+    expect(aborted.message).toBe("Aborted");
+    expect(aborted.hint).toBeUndefined();
     expect(listApplications(layout(root).applications).length).toBe(2);
+    expect(listRuns(layout(root).runs).filter((s) => s.status === "aborted").length).toBe(2);
   }, 120000);
 
   test("into adds a version to the given application without duplicate detection or a new app", async () => {
@@ -322,6 +333,8 @@ test.skipIf(!hasLatex)("pause resolving false aborts before any writer call and 
   const e = (await run({ pause: async (_j, g) => ((gaps = g), false) }).catch((x) => x)) as UserError;
   expect(e).toBeInstanceOf(UserError);
   expect(e.message).toBe("Aborted");
+  expect(e.hint).toBeUndefined();
+  expect(listRuns(layout(root).runs)[0]!.status).toBe("aborted");
   expect(gaps).toEqual(["Rust", "Kafka"]);
   expect(calls()).toEqual(["parse"]);
   expect(listApplications(layout(root).applications).length).toBe(1);
@@ -394,7 +407,7 @@ describe.skipIf(!hasLatex)("applyJob (resume, P1 behaviours)", () => {
     expect(e).toBeInstanceOf(HarnessError);
     expect(e.kind).toBe("unknown");
     const ws = join(runDir(), "resume-write");
-    expect(e.hint).toBe(`model overloaded, giving up (logs: ${ws})`);
+    expect(e.hint).toBe(`model overloaded, giving up (logs: ${ws}) — resume with: resumely resume ${basename(runDir())}`);
     expect(readFileSync(join(ws, "stderr.log"), "utf8")).toContain("model overloaded");
   });
 
@@ -402,7 +415,7 @@ describe.skipIf(!hasLatex)("applyJob (resume, P1 behaviours)", () => {
     script(full({ "resume-write": [{ $stderr: "model overloaded, giving up", $exit: 1 }], "cover-write": [{ $exit: 1 }] }));
     const e = (await run().catch((x) => x)) as HarnessError;
     expect(e).toBeInstanceOf(HarnessError);
-    expect(e.hint).toBe(`model overloaded, giving up (logs: ${join(runDir(), "resume-write")})`);
+    expect(e.hint).toBe(`model overloaded, giving up (logs: ${join(runDir(), "resume-write")}) — resume with: resumely resume ${basename(runDir())}`);
   });
 
   test("render into a new version with another template", async () => {
@@ -482,8 +495,8 @@ describe.skipIf(!hasLatex)("applyJob (resume, P1 behaviours)", () => {
     const e = (await run({ template: "broken" }).catch((x) => x)) as UserError;
     expect(e).toBeInstanceOf(UserError);
     expect(e.message).toBe("LaTeX compile failed");
-    expect(e.hint).toMatch(/^! Undefined control sequence\. — content saved at .*\/\.runs\/[^/]+\/resume-write\/out\/resume\.json$/);
-    expect(existsSync(e.hint!.split("content saved at ")[1]!)).toBe(true);
+    expect(e.hint).toMatch(/^! Undefined control sequence\. — content saved at .*\/\.runs\/[^/]+\/resume-write\/out\/resume\.json — resume with: resumely resume [\w-]+$/);
+    expect(existsSync(e.hint!.split("content saved at ")[1]!.split(" — ")[0]!)).toBe(true);
   });
 });
 
@@ -546,8 +559,67 @@ test("ls with no applications", () => {
 
 test("pdfToOpen: the resume, else the cover letter when only it succeeded", () => {
   const doc = (p: string) => ({ pdfPath: p, version: 1, pages: 1, ready: true, review: null });
-  const base = { app: {} as ApplyResult["app"], failures: [], gaps: [], inferred: [], warnings: [] };
+  const base = { app: {} as ApplyResult["app"], runId: "r", failures: [], gaps: [], inferred: [], warnings: [] };
   expect(pdfToOpen({ ...base, resume: doc("/r.pdf"), cover: doc("/c.pdf") })).toBe("/r.pdf");
   expect(pdfToOpen({ ...base, cover: doc("/c.pdf") })).toBe("/c.pdf");
   expect(pdfToOpen(base)).toBeUndefined();
+});
+
+describe.skipIf(!hasLatex)("multi-role postings and agency postings", () => {
+  const multi = { ...parsedJob, other_roles: ["Staff Backend Engineer"] };
+
+  test("--role overrides the parsed role: application, slug and parsed.json follow, no role warning", async () => {
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const r = await resumeOnly({ role: "Staff Backend Engineer" });
+    expect(r.app.meta.role).toBe("Staff Backend Engineer");
+    expect(r.app.slug).toEndWith("-staff-backend-engineer");
+    expect(readJson(join(r.app.dir, "job/parsed.json")).role).toBe("Staff Backend Engineer");
+    expect(r.warnings.filter((w) => /other roles|is not one of/.test(w))).toEqual([]);
+    expect(readJson(join(runDir(), "state.json")).options.role).toBe("Staff Backend Engineer");
+  }, 120_000);
+
+  test("without --role, other roles in the posting produce a warning", async () => {
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const r = await resumeOnly();
+    expect(r.app.meta.role).toBe("Senior Backend Engineer");
+    expect(r.warnings).toContain("posting lists other roles: Staff Backend Engineer (pick one with --role)");
+  }, 120_000);
+
+  test("--role matching nothing the posting lists warns", async () => {
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const r = await resumeOnly({ role: "Designer" });
+    expect(r.app.meta.role).toBe("Designer");
+    expect(r.warnings).toContain('--role "Designer" is not one of the roles parsed from the posting (Senior Backend Engineer, Staff Backend Engineer)');
+  }, 120_000);
+
+  test("--role adding to an existing application (--into or 'existing') targets that role without renaming the app", async () => {
+    const input = { ...(await job()), kind: "url" as const, url: "https://jobs.test/multi" };
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const first = await resumeOnly({ input });
+    const writtenRole = (runId: string) => readJson(join(layout(root).runs, runId, "resume-write", "parsed-job.json")).role;
+    const note = `--role "Staff Backend Engineer": adding to existing application ${first.app.slug}; documents target this role, the application keeps its name and role`;
+
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const viaInto = await resumeOnly({ input, into: first.app, role: "Staff Backend Engineer" });
+    expect(viaInto.app.slug).toBe(first.app.slug);
+    expect(viaInto.app.meta.role).toBe("Senior Backend Engineer");
+    expect(writtenRole(viaInto.runId)).toBe("Staff Backend Engineer");
+    expect(viaInto.warnings).toContain(note);
+
+    script(full({ parse: [{ "out/parsed-job.json": multi }] }));
+    const viaPrompt = await resumeOnly({ input, role: "Staff Backend Engineer", onDuplicate: async () => "existing" });
+    expect(viaPrompt.app.slug).toBe(first.app.slug);
+    expect(writtenRole(viaPrompt.runId)).toBe("Staff Backend Engineer");
+    expect(viaPrompt.warnings).toContain(note);
+    expect(readJson(join(first.app.dir, "job/parsed.json")).role).toBe("Senior Backend Engineer");
+  }, 180_000);
+
+  test("an agency posting skips research and is foldered by the agency", async () => {
+    script(full({ parse: [{ "out/parsed-job.json": { ...parsedJob, company: "Confidential (via Hays Recruitment)" } }] }));
+    const r = await run();
+    expect(calls()).not.toContain("research");
+    expect(readJson(join(r.app.dir, "resume/v1/meta.json")).research).toBe("skipped");
+    expect(r.app.slug).toContain("hays-recruitment");
+    expect(r.app.meta.company).toBe("Confidential (via Hays Recruitment)");
+  }, 120_000);
 });

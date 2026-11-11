@@ -8,13 +8,16 @@ import { resolveDataRoot, requireDataRoot, layout } from "./paths";
 import { loadProfile } from "./profile/load";
 import { formatEntry, formatProfileContext, formatProfileTree } from "./profile/context";
 import { initDataRoot } from "./commands/init";
+import { formatDoctor, runDoctor } from "./commands/doctor";
 import { openFile } from "./commands/open";
 import { resolveJobInput } from "./job/intake";
+import { moveApplication } from "./application/move";
 import { addNote, findApplication, listApplications } from "./application/store";
 import { exportApplication, setStatus } from "./application/tracking";
 import { confirmParsed, isInteractive, promptDuplicate } from "./commands/prompt";
 import { savedNotReadyReasons } from "./pipeline/version";
-import { applyJob, type DocResult, formatApplicationList, renderApplication, resolveOpenTarget } from "./pipeline/apply";
+import { formatTemplateList, listTemplates, newTemplate } from "./render/templates";
+import { applyJob, type ApplyResult, type DocResult, formatApplicationList, renderApplication, resolveOpenTarget, resumeRun } from "./pipeline/apply";
 
 const program = new Command();
 program.name("resumely").description("Agent-driven resume tailoring");
@@ -78,6 +81,18 @@ function doneLine(label: string, kind: "resume" | "cover-letter", appDir: string
   return `${base} (not ready: ${savedNotReadyReasons(join(appDir, kind, `v${d.version}`))})`;
 }
 
+/** Print an apply/resume result; exit 1 when a document failed or is not ready. */
+function report(r: ApplyResult) {
+  if (r.resume) console.error(doneLine("resume", "resume", r.app.dir, r.resume));
+  if (r.cover) console.error(doneLine("cover letter", "cover-letter", r.app.dir, r.cover));
+  for (const f of r.failures) console.error(`failed: ${f.kind}: ${f.message}${f.hint ? ` (${f.hint})` : ""}`);
+  if (r.inferred.length) console.error(["inferred claims to review:", ...r.inferred.map((c) => `  - ${c.text} [${c.entry_ids.join(", ")}]`)].join("\n"));
+  if (r.gaps.length) console.error(["gaps:", ...r.gaps.map((g) => `  - ${g.requirement}: ${g.note}`)].join("\n"));
+  printWarnings(r.warnings);
+  if (r.failures.length) console.error(`hint: resume with: resumely resume ${r.runId} [--harness <other>]`);
+  if (r.failures.length || r.resume?.ready === false || r.cover?.ready === false) process.exitCode = 1;
+}
+
 program
   .command("apply [input]")
   .description("Tailor a resume to a job (URL, file, or --clip)")
@@ -90,10 +105,11 @@ program
   .option("--no-research", "skip company research")
   .option("--no-review", "skip the review loop")
   .option("--review", "pause after parsing the job to confirm")
+  .option("--role <title>", "use this role when the posting lists several")
   .option("--into <app>", "add versions to an existing application")
   .option("--new", "create a separate application even if one exists")
   .option("--no-open", "don't open the PDF when done")
-  .action(async (input: string | undefined, o: { clip?: boolean; harness?: string; template?: string; stretch?: boolean; pages?: string; cover: boolean; research: boolean; review?: boolean; into?: string; new?: boolean; open: boolean }) => {
+  .action(async (input: string | undefined, o: { clip?: boolean; harness?: string; template?: string; stretch?: boolean; pages?: string; cover: boolean; research: boolean; review?: boolean; role?: string; into?: string; new?: boolean; open: boolean }) => {
     const root = dataRoot();
     if (o.into && o.new) throw new UserError("--into and --new can't be combined");
     let pages: number | undefined;
@@ -104,21 +120,29 @@ program
     const interactive = isInteractive();
     if (o.review === true && !interactive) throw new UserError("--review needs an interactive terminal");
     const into = o.into ? findApplication(layout(root).applications, o.into) : undefined;
-    const src = await resolveJobInput(input, { clip: o.clip });
+    const src = await resolveJobInput(input, { clip: o.clip, interactive });
     const r = await applyJob({
       root, input: src, harness: o.harness, template: o.template, open: o.open, onProgress: progress,
       mode: o.stretch ? "stretch" : "truthful", pages, cover: o.cover, research: o.research, review: o.review !== false,
+      role: o.role,
       pause: o.review === true ? confirmParsed : undefined,
       into,
       onDuplicate: o.new ? async () => "new" : interactive ? promptDuplicate : undefined,
     });
-    if (r.resume) console.error(doneLine("resume", "resume", r.app.dir, r.resume));
-    if (r.cover) console.error(doneLine("cover letter", "cover-letter", r.app.dir, r.cover));
-    for (const f of r.failures) console.error(`failed: ${f.kind}: ${f.message}${f.hint ? ` (${f.hint})` : ""}`);
-    if (r.inferred.length) console.error(["inferred claims to review:", ...r.inferred.map((c) => `  - ${c.text} [${c.entry_ids.join(", ")}]`)].join("\n"));
-    if (r.gaps.length) console.error(["gaps:", ...r.gaps.map((g) => `  - ${g.requirement}: ${g.note}`)].join("\n"));
-    printWarnings(r.warnings);
-    if (r.failures.length || r.resume?.ready === false || r.cover?.ready === false) process.exitCode = 1;
+    report(r);
+  });
+
+program
+  .command("resume [run-id]")
+  .description("Continue a failed run from its last finished step (default: the most recent failed run)")
+  .option("--harness <name>", "agent harness to use from here on")
+  .option("--no-open", "don't open the PDF when done")
+  .action(async (runId: string | undefined, o: { harness?: string; open: boolean }) => {
+    const r = await resumeRun({
+      root: dataRoot(), runId, harness: o.harness, open: o.open, onProgress: progress,
+      onDuplicate: isInteractive() ? promptDuplicate : undefined,
+    });
+    report(r);
   });
 
 program
@@ -162,6 +186,18 @@ program
   });
 
 program
+  .command("mv <app>")
+  .description("Change an application's company and/or role (renames its folder)")
+  .option("--company <name>", "new company")
+  .option("--role <title>", "new role")
+  .action((query: string, o: { company?: string; role?: string }) => {
+    const root = dataRoot();
+    const app = findApplication(layout(root).applications, query);
+    const moved = moveApplication(root, app, o);
+    console.log(`${app.slug} → ${moved.slug}`);
+  });
+
+program
   .command("export <app>")
   .description("Copy the send-ready PDFs to a folder (default ~/Desktop, else the current directory)")
   .option("--version <n>", "resume version (default latest)")
@@ -184,6 +220,32 @@ program
     const r = await renderApplication({ root: dataRoot(), query, template: o.template, kind: o.cover ? "cover-letter" : "resume", version: parseVersion(o.version), open: o.open, onProgress: progress });
     printWarnings(r.warnings);
     console.error(`done: ${r.pdfPath}`);
+  });
+
+const templates = program.command("templates").description("List and create resume templates");
+
+templates
+  .command("list")
+  .description("List built-in and user templates")
+  .action(() => console.log(formatTemplateList(listTemplates(resolveDataRoot()))));
+
+templates
+  .command("new <id>")
+  .description("Create a user template by copying a base template")
+  .requiredOption("--from <base>", "id of the template to copy")
+  .action((id: string, o: { from: string }) => {
+    const t = newTemplate(dataRoot(), id, o.from);
+    console.log(`created ${t.dir}`);
+    console.log(`hint: edit ${t.dir}/resume.tex.njk, then: resumely render <app> --template ${id}`);
+  });
+
+program
+  .command("doctor")
+  .description("Check harnesses, LaTeX, templates and your data root")
+  .action(async () => {
+    const { text, failed } = formatDoctor(await runDoctor({ root: resolveDataRoot() }));
+    console.log(text);
+    if (failed > 0) process.exitCode = 1;
   });
 
 try {

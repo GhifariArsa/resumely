@@ -14,6 +14,11 @@ export function slugify(s: string, max = 40): string {
   return cut || "unknown";
 }
 
+/** The agency of a "Confidential (via <agency>)" posting, else null. */
+export function agencyOf(company: string): string | null {
+  return /^Confidential \(via (.+)\)$/i.exec(company.trim())?.[1]?.trim() ?? null;
+}
+
 function alnum(s: string): string {
   return ascii(s).replace(/[^A-Za-z0-9]/g, "");
 }
@@ -31,7 +36,7 @@ export function sendReadyName(
     .replaceAll("{First}", first)
     .replaceAll("{Last}", last)
     .replaceAll("{Kind}", kind)
-    .replaceAll("{Company}", alnum(company))
+    .replaceAll("{Company}", alnum(agencyOf(company) ?? company))
     .replace(/[^A-Za-z0-9._-]/g, "")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");

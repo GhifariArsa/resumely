@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { join } from "node:path";
-import { compileTex, parseFill } from "../src/render/compile";
+import { compileTex, DEFAULT_TIMEOUT_MS, parseFill } from "../src/render/compile";
 import { renderResume, findTemplate, builtinTemplatesDir } from "../src/render/render";
 import { loadProfile } from "../src/profile/load";
 import { ResumeContent } from "../src/pipeline/schemas";
@@ -87,4 +87,8 @@ test("parseFill parses pt values, clamps, and rejects bad input", () => {
   expect(parseFill("RESUMELY-FILL 900.5pt 700.0pt")).toBe(1);
   expect(parseFill("RESUMELY-FILL 5pt 0.0pt")).toBeNull();
   expect(parseFill("no marker")).toBeNull();
+});
+
+test("default compile timeouts are per engine (cold luaotfload cache is slow)", () => {
+  expect(DEFAULT_TIMEOUT_MS).toEqual({ pdflatex: 120000, xelatex: 120000, lualatex: 300000 });
 });

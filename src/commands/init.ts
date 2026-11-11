@@ -20,10 +20,14 @@ const CONFIG_TOML = `# resumely config. Uncomment and edit to override defaults.
 # Output filename pattern
 # filename = "{First}_{Last}_{Kind}_{Company}"
 
+# Opt-in: if the harness is unavailable (not installed, logged out, rate-limited, timed out), try these in order
+# fallback_harnesses = ["codex"]
+
 # Custom adapters (commands are argv arrays, never shell strings):
 # [adapters.mine]
 # command = ["my-agent", "--model", "{model}", "--prompt-file", "{prompt}"]
 # check = ["my-agent", "--version"]
+# auth_check = ["my-agent", "whoami"]   # optional login probe, used by doctor
 # model = "my-model"   # optional; without it "--model", "{model}" is dropped
 `;
 

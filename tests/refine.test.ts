@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HardFacts } from "../src/checks/facts";
 import { UserError } from "../src/errors";
+import { HarnessError } from "../src/harness/adapter";
 import { loadProfile } from "../src/profile/load";
 import { refine, revisionInstructions, writeRevisionFiles, type Produced } from "../src/pipeline/refine";
 import { reviewSchemaFor, type Review, type ResumeContent } from "../src/pipeline/schemas";
@@ -247,20 +248,41 @@ describe("refine", () => {
     expect(r.warnings).toEqual([`review failed: Agent output invalid after 3 attempts (logs: ${ws})`]);
   });
 
-  test("a failing second review keeps the revised version and the last review", async () => {
+  test("an availability failure in the second review fails the document (resumable)", async () => {
     script({ "resume-write": [out(resume)], "resume-review-1": [rev(revise)], "resume-revise-1": [out(revised)] });
     process.env.FAKE_HARNESS_FAIL_STEP = "resume-review-2";
-    const r = await go();
+    const e = (await go().catch((x) => x)) as HarnessError;
     expect(calls()).toEqual(["resume-write", "resume-review-1", "resume-revise-1", "resume-review-2"]);
-    expect(r.value).toEqual(revised);
-    expect(r.review).toEqual(revise);
+    expect(e).toBeInstanceOf(HarnessError);
+    expect(e.kind).toBe("rate_limit");
+    expect(e.hint).toContain(`(logs: ${join(runDir(), "resume-review-2")})`);
+  });
+
+  test("an unknown harness failure in a review is a warning: the document is kept", async () => {
+    script({ "resume-write": [out(resume)], "resume-review-1": [{ $stderr: "segfault in agent", $exit: 2 }] });
+    const r = await go();
+    expect(r.value).toEqual(resume);
+    expect(r.review).toBeNull();
     expect(r.reviewedFinal).toBe(false);
-    expect(r.warnings.length).toBe(1);
-    expect(r.warnings[0]).toStartWith("review failed: ");
-    expect(r.warnings[0]).toEndWith(`(logs: ${join(runDir(), "resume-review-2")})`);
-    // the harness hint is kept, the workspace is named once
-    expect(r.warnings[0]!.match(/\(logs: /g)!.length).toBe(1);
-    expect(r.warnings[0]).toMatch(/^review failed: .+ \(.+\) \(logs: /);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toStartWith("review failed: fake failed (unknown)");
+  });
+
+  test("an unknown harness failure in a revision is a warning: the last good version is kept", async () => {
+    script({ "resume-write": [out(resume)], "resume-review-1": [rev(revise)], "resume-revise-1": [{ $stderr: "segfault in agent", $exit: 2 }] });
+    const r = await go();
+    expect(r.value).toEqual(resume);
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toStartWith("revision rejected: fake failed (unknown)");
+  });
+
+  test("an availability failure in a revision fails the document", async () => {
+    script({ "resume-write": [out(resume)], "resume-review-1": [rev(revise)] });
+    process.env.FAKE_HARNESS_FAIL_STEP = "resume-revise-1";
+    const e = (await go().catch((x) => x)) as HarnessError;
+    expect(e).toBeInstanceOf(HarnessError);
+    expect(e.kind).toBe("rate_limit");
+    expect(calls()).toEqual(["resume-write", "resume-review-1", "resume-revise-1"]);
   });
 
   test("a failure of the initial write propagates", async () => {

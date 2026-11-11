@@ -1,0 +1,7 @@
+id = "traditional"
+name = "Traditional"
+description = "Conservative serif single-column resume with a centred small-caps name and ruled section headings, adapted from the McDowell CV design (MIT). Needs XeLaTeX."
+engine = "xelatex"
+supports = ["resume", "cover-letter"]
+packages = ["fontspec", "amssymb", "geometry", "accsupp", "enumitem", "titlesec", "hyperref"]
+fonts = ["texgyretermes-regular.otf", "texgyretermes-bold.otf", "texgyretermes-italic.otf", "texgyretermes-bolditalic.otf"]

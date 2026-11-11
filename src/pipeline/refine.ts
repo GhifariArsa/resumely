@@ -5,7 +5,7 @@ import type { AdapterConfig } from "../config";
 import { UserError } from "../errors";
 import { reviewSchemaFor, type Review } from "./schemas";
 import { validateReview } from "./validate";
-import { createRunWorkspace, runAgentStep } from "./workspace";
+import { createRunWorkspace, harnessUnavailable, runAgentStep, type Fallback, type StepCache } from "./workspace";
 
 export type DocumentKind = "resume" | "cover-letter";
 
@@ -27,6 +27,9 @@ export type RefineOptions<T> = {
   produce: (value: T) => Promise<Produced>;
   reviewFiles: { "job.md": string };
   onProgress?: (msg: string) => void;
+  /** Passed to the review step (the writer gets its own through `write`). */
+  checkpoint?: StepCache;
+  fallbacks?: Fallback[];
 };
 
 export type RefineResult<T> = {
@@ -66,9 +69,9 @@ export function writeRevisionFiles<T>(ws: string, revision: Revision<T>): void {
 
 /**
  * write → produce, then up to `maxRounds` × (review → revise → produce). A round revises on `revise` or on
- * overflow. The reviewer never sees the profile. A failed review, a rejected/uncompilable revision or a revision
- * identical to the previous value ends the loop with a warning and keeps the last good version; failures of the
- * initial write or produce propagate.
+ * overflow. The reviewer never sees the profile. An invalid review, a rejected/uncompilable revision or a revision
+ * identical to the previous value ends the loop with a warning and keeps the last good version; an unavailable
+ * harness (not an `unknown` crash) and failures of the initial write or produce propagate.
  */
 export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
   const prefix = o.kind === "resume" ? "resume" : "cover";
@@ -108,10 +111,12 @@ export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
         validate: (raw) => validateReview(raw, o.kind),
         timeoutMs: o.timeoutMs,
         onProgress: o.onProgress,
+        checkpoint: o.checkpoint,
+        fallbacks: o.fallbacks,
       }));
       reviewedFinal = true;
     } catch (e) {
-      if (!(e instanceof UserError)) throw e;
+      if (harnessUnavailable(e) || !(e instanceof UserError)) throw e;
       reviewedFinal = false;
       warnings.push(`review failed: ${describe(e, rws)} (logs: ${rws})`);
       break;
@@ -124,7 +129,7 @@ export async function refine<T>(o: RefineOptions<T>): Promise<RefineResult<T>> {
     try {
       next = await o.write(vws, { previous: value, review, facts: produced.facts });
     } catch (e) {
-      if (!(e instanceof UserError)) throw e;
+      if (harnessUnavailable(e) || !(e instanceof UserError)) throw e;
       warnings.push(`revision rejected: ${describe(e, vws)} (logs: ${vws})`);
       break;
     }

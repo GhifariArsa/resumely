@@ -1,0 +1,8 @@
+((* set parts = about.name.trim().split(r/\s+/) *))
+\name{(((parts[0])))}{((( parts.slice(1).join(" ") )))}
+((* if about.phone *))\phone[mobile]{(((about.phone)))}
+((* endif *))((* if about.email *))\email{(((about.email)))}
+((* endif *))((* if about.location *))\address{(((about.location)))}{}{}
+((* endif *))((= Links go into moderncv's socials collection as plain \href: the target is the raw URL, the text is the escaped URL without scheme or trailing slash. =))
+((* for l in about.links *))((* set lab = l.label | lower *))\collectionadd[((* if "github" in lab *))github((* elif "linkedin" in lab *))linkedin((* else *))homepage((* endif *))]{socials}{\href{((( raw.about.links[loop.index0].url | latexUrl )))}{((( l.url | replace(r/^https?:\/\//, "") | replace(r/\/+$/, "") )))}}
+((* endfor *))

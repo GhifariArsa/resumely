@@ -1,0 +1,39 @@
+%-------------------------
+% Resume (resumely traditional): McDowell CV inspired design, see LICENSE
+%-------------------------
+
+((* include "preamble.tex.njk" *))
+
+\hypersetup{pdfauthor={(((about.name)))}, pdftitle={(((about.name))) — Resume}((* if job *)), pdfsubject={(((job.role))) at (((job.company)))}((* endif *))}
+
+\begin{document}
+
+((* include "header.tex.njk" *))
+((* if resume.summary *))
+
+\begin{center}\small (((resume.summary.text)))\end{center}
+((* endif *))
+((* for s in resume.sections *))
+
+\section{(((s.title)))}
+((* for it in s.items *))
+\cventry{(((it.heading)))}{(((it.subheading)))}{(((it.location)))}{(((it.dates)))}
+((* if it.bullets.length *))
+\cvbullets{
+((* for b in it.bullets *))
+  \item (((b.text)))
+((* endfor *))
+}
+((* endif *))
+((* endfor *))
+((* endfor *))
+((* if resume.skills.length *))
+
+\section{Technical Skills}
+((* for k in resume.skills *))
+\noindent{\bfseries (((k.category))): }((( k.items | join(", ") )))\par
+((* endfor *))
+((* endif *))
+
+\par\message{RESUMELY-FILL \the\pagetotal\space\the\textheight}
+\end{document}

@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AdapterConfig } from "../config";
 import { UserError } from "../errors";
+import { onInterrupt } from "../signals";
 import { CompanyResearch, jsonSchemaFor } from "./schemas";
 import type { ParsedJob } from "./schemas";
 import { validateResearch } from "./validate";
-import { createRunWorkspace, runAgentStep } from "./workspace";
+import { createRunWorkspace, harnessUnavailable, runAgentStep } from "./workspace";
 
 const CONFIDENTIAL = /confidential|undisclosed|stealth|via .+ (recruit|agency)/i;
 
@@ -18,7 +19,9 @@ export function renderCompanyMd(r: CompanyResearch): string {
   return `# ${r.company}\n\n${r.summary}\n\n## Facts\n\n${facts}\n\n## Sources\n\n${sources}\n`;
 }
 
-function loadExisting(path: string): CompanyResearch | null {
+/** The saved research for an application (`<appDir>/job/company.json`), or null when missing or invalid. */
+export function loadCompanyResearch(appDir: string): CompanyResearch | null {
+  const path = join(appDir, "job", "company.json");
   if (!existsSync(path)) return null;
   try {
     const r = validateResearch(JSON.parse(readFileSync(path, "utf8")));
@@ -29,7 +32,8 @@ function loadExisting(path: string): CompanyResearch | null {
 }
 
 export type ResearchStatus = "used" | "none_found" | "skipped" | "failed";
-export type ResearchOutcome = { research: CompanyResearch | null; status: ResearchStatus; warning?: string };
+/** `retry`: the harness was unavailable (rate limit, auth…), so a resumed run should try the research again. */
+export type ResearchOutcome = { research: CompanyResearch | null; status: ResearchStatus; warning?: string; retry?: boolean };
 
 /** A research result with no facts is "none_found": nothing verifiable, which is a valid answer, not a failure. */
 const outcome = (r: CompanyResearch): ResearchOutcome => (r.facts.length ? { research: r, status: "used" } : { research: null, status: "none_found" });
@@ -65,7 +69,7 @@ export async function runResearch(o: {
   onProgress?: (m: string) => void;
 }): Promise<ResearchOutcome> {
   const jsonPath = join(o.appDir, "job", "company.json");
-  const existing = loadExisting(jsonPath);
+  const existing = loadCompanyResearch(o.appDir);
   if (existing) return outcome(existing);
   if (isConfidential(o.job)) return { research: null, status: "skipped", warning: "research skipped: confidential/agency posting" };
   if (o.adapter === null) {
@@ -73,6 +77,7 @@ export async function runResearch(o: {
   }
   const logs = createRunWorkspace(o.runsDir, "research", o.runId);
   const root = mkdtempSync(join(tmpdir(), "resumely-research-"));
+  const unregister = onInterrupt(() => rmSync(root, { recursive: true, force: true }));
   const workspace = join(root, "research");
   o.onProgress?.("researching company…");
   try {
@@ -85,6 +90,7 @@ export async function runResearch(o: {
         "target.json": JSON.stringify(researchTarget(o.job, o.url), null, 2) + "\n",
         "company.schema.json": JSON.stringify(jsonSchemaFor("company"), null, 2) + "\n",
       },
+      promptMode: "inline",
       outFile: "company.json",
       validate: validateResearch,
       timeoutMs: o.timeoutMs,
@@ -94,9 +100,12 @@ export async function runResearch(o: {
     writeFileSync(join(o.appDir, "job", "company.md"), renderCompanyMd(value));
     return outcome(value);
   } catch (e) {
-    if (e instanceof UserError) return { research: null, status: "failed", warning: `research failed: ${e.message} (logs: ${logs})` };
+    if (e instanceof UserError) {
+      return { research: null, status: "failed", warning: `research failed: ${e.message} (logs: ${logs})`, ...(harnessUnavailable(e) ? { retry: true } : {}) };
+    }
     throw e;
   } finally {
+    unregister();
     copyBack(workspace, logs);
     rmSync(root, { recursive: true, force: true });
   }
