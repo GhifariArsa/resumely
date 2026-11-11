@@ -3,7 +3,9 @@ import { z } from "zod";
 export const ENTRY_TYPES = ["experience", "project", "education", "award", "publication", "volunteering", "certification", "other"] as const;
 export type EntryType = (typeof ENTRY_TYPES)[number];
 
-const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "must be YYYY-MM");
+export const MonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "must be YYYY-MM");
+
+export const EntryIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "must match /^[a-z0-9][a-z0-9-]*$/");
 
 export const AboutFrontmatter = z.object({
   name: z.string().min(1),
@@ -16,13 +18,13 @@ export const AboutFrontmatter = z.object({
 });
 
 export const EntryFrontmatter = z.object({
-  id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "must match /^[a-z0-9][a-z0-9-]*$/"),
+  id: EntryIdSchema,
   type: z.enum(ENTRY_TYPES).optional(),
   title: z.string().min(1),
   org: z.string().optional(),
   location: z.string().optional(),
-  start: month.optional(),
-  end: z.union([month, z.literal("present")]).optional(),
+  start: MonthSchema.optional(),
+  end: z.union([MonthSchema, z.literal("present")]).optional(),
   url: z.string().optional(),
   skills: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
