@@ -328,6 +328,22 @@ describe("new-user path", () => {
     expect(existsSync(callsFile())).toBe(false);
   });
 
+  test("apply on an empty profile with pending proposals points at review", async () => {
+    for (const sub of ["experience", "projects", "education", "extras"]) {
+      const d = join(layout(root).profile, sub);
+      for (const f of readdirSync(d)) rmSync(join(d, f), { recursive: true, force: true });
+    }
+    const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: new Blob([JSON.stringify({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] })]), stdout: "pipe", stderr: "pipe",
+    });
+    await add.exited;
+    const r = await cli("apply", jobFile, "--no-open");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("1 profile proposals awaiting review");
+    expect(r.stderr).toContain("hint: Run: resumely profile review");
+    expect(existsSync(callsFile())).toBe(false);
+  });
+
   test("apply warns about pending proposals", async () => {
     const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
       env: { ...process.env, RESUMELY_HOME: root }, stdin: new Blob([JSON.stringify({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] })]), stdout: "pipe", stderr: "pipe",

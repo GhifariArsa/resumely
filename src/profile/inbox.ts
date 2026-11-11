@@ -225,7 +225,8 @@ export function profileReadiness(profileDir: string): { error?: UserError; warni
   const pending = listProposals(profileDir).length;
   if (pending) warnings.push(`${pending} profile proposals awaiting review (resumely profile review)`);
   if (loadProfile(profileDir).entries.length === 0) {
-    return { error: new UserError("Your profile has no entries yet", "Run: resumely profile import <resume.pdf>, then resumely profile review"), warnings };
+    const hint = pending ? "Run: resumely profile review (your imported proposals are waiting)" : "Run: resumely profile import <resume.pdf>, then resumely profile review";
+    return { error: new UserError("Your profile has no entries yet", hint), warnings };
   }
   return { warnings };
 }

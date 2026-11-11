@@ -267,8 +267,8 @@ program
     const interactive = isInteractive();
     if (o.review === true && !interactive) throw new UserError("--review needs an interactive terminal");
     const ready = profileReadiness(layout(root).profile);
-    if (ready.error) throw ready.error;
     printWarnings(ready.warnings);
+    if (ready.error) throw ready.error;
     const into = o.into ? findApplication(layout(root).applications, o.into) : undefined;
     const src = await resolveJobInput(input, { clip: o.clip });
     const r = await applyJob({
