@@ -1,0 +1,31 @@
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 20px; }
+.toolbar label { display: inline-flex; align-items: center; gap: 6px; }
+.view-switch { display: flex; gap: 12px; margin-left: auto; }
+.view-switch a { color: var(--pencil); text-decoration: none; padding: 4px 0; border-bottom: 2px solid transparent; }
+.view-switch a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--link); }
+
+.board-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; align-items: start; }
+.column > h2 { font-size: 15px; padding-top: 8px; border-top: 3px solid var(--s-drafted); margin-bottom: 4px; }
+.column.status-drafted > h2 { border-top-color: var(--s-drafted); }
+.column.status-applied > h2 { border-top-color: var(--s-applied); }
+.column.status-interviewing > h2 { border-top-color: var(--s-interviewing); }
+.column.status-rejected > h2 { border-top-color: var(--s-rejected); }
+.column.status-offer > h2 { border-top-color: var(--s-offer); }
+.column .count { color: var(--pencil); font-weight: 400; }
+
+.app-row { display: block; padding: 10px 0; border-bottom: 1px solid var(--rule); color: var(--ink); text-decoration: none; }
+.app-row:hover .company { text-decoration: underline; }
+.app-row .company, .app-row .role { display: block; }
+.app-row .role { color: var(--pencil); }
+.app-row .docs { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; font-size: 13px; }
+.app-row .doc { display: inline-flex; gap: 6px; }
+.tag-sent { color: var(--s-applied); font-weight: 600; }
+
+.app-table { width: 100%; border-collapse: collapse; }
+.app-table th, .app-table td { text-align: left; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.app-table th { font-size: 13px; font-weight: 600; color: var(--pencil); }
+
+@media (max-width: 900px) {
+  .board-grid { grid-template-columns: 1fr; }
+  .app-table { display: block; overflow-x: auto; }
+}
