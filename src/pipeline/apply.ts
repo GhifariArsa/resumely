@@ -294,15 +294,18 @@ async function pipeline(p: Pipeline): Promise<ApplyResult> {
     if (cp.state.research.warning) warnings.push(cp.state.research.warning);
   } else {
     let warning: string | undefined;
+    let retry = false;
     if (opt.cover && coverable && opt.research) {
       const r = await runResearch({
         adapter: resolveAdapter(harness, config, { research: true }),
         name: harness, runsDir: l.runs, runId, appDir: app.dir, job, url: app.meta.source.url, timeoutMs, onProgress,
       });
       ({ research, status: researchStatus, warning } = r);
+      retry = r.retry === true;
       if (warning) warnings.push(warning);
     }
-    cp.setResearch(warning ? { status: researchStatus, warning } : { status: researchStatus });
+    // An unavailable harness is not checkpointed, so `resumely resume` tries the research again.
+    if (!retry) cp.setResearch(warning ? { status: researchStatus, warning } : { status: researchStatus });
   }
 
   const letterDate = formatLetterDate(new Date());

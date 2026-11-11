@@ -127,6 +127,29 @@ describe.skipIf(!hasLatex)("checkpointed runs", () => {
     expect(state(r.runId).error).toBeNull();
   }, 90000);
 
+  test("research that failed for availability is not checkpointed: resuming retries it", async () => {
+    script(full({ research: [{ $stderr: "usage limit reached", $exit: 1 }] }));
+    const first = await failAt("cover-write");
+    expect(first.warnings.some((w) => w.startsWith("research failed: fake failed (rate_limit)"))).toBe(true);
+    expect(state(first.runId)).toMatchObject({ status: "failed", research: null });
+
+    script(full());
+    const r = await resumeRun({ root, open: false });
+    expect(calls()).toEqual(["research", "cover-write", "cover-review-1"]);
+    expect(state(r.runId).research).toEqual({ status: "used" });
+    expect(r.cover?.version).toBe(1);
+  }, 90000);
+
+  test("research that failed for other reasons is checkpointed and not retried", async () => {
+    script(full({ research: [{ "out/company.json": "INVALID" }] }));
+    const first = await failAt("cover-write");
+    expect(state(first.runId).research.status).toBe("failed");
+
+    script(full({ "cover-write": [{ "out/cover-letter.json": coverNoResearch }] }));
+    await resumeRun({ root, open: false });
+    expect(calls()).not.toContain("research");
+  }, 90000);
+
   test("an availability failure at resume-review-2 fails the resume; resuming reruns only that review", async () => {
     script(full({ "resume-review-1": [rev(revise)], "resume-revise-1": [{ "out/resume.json": revised }], "resume-review-2": [rev(pass)] }));
     const first = await failAt("resume-review-2");

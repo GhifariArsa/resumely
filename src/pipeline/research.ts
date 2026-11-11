@@ -7,7 +7,7 @@ import { onInterrupt } from "../signals";
 import { CompanyResearch, jsonSchemaFor } from "./schemas";
 import type { ParsedJob } from "./schemas";
 import { validateResearch } from "./validate";
-import { createRunWorkspace, runAgentStep } from "./workspace";
+import { createRunWorkspace, harnessUnavailable, runAgentStep } from "./workspace";
 
 const CONFIDENTIAL = /confidential|undisclosed|stealth|via .+ (recruit|agency)/i;
 
@@ -32,7 +32,8 @@ export function loadCompanyResearch(appDir: string): CompanyResearch | null {
 }
 
 export type ResearchStatus = "used" | "none_found" | "skipped" | "failed";
-export type ResearchOutcome = { research: CompanyResearch | null; status: ResearchStatus; warning?: string };
+/** `retry`: the harness was unavailable (rate limit, auth…), so a resumed run should try the research again. */
+export type ResearchOutcome = { research: CompanyResearch | null; status: ResearchStatus; warning?: string; retry?: boolean };
 
 /** A research result with no facts is "none_found": nothing verifiable, which is a valid answer, not a failure. */
 const outcome = (r: CompanyResearch): ResearchOutcome => (r.facts.length ? { research: r, status: "used" } : { research: null, status: "none_found" });
@@ -99,7 +100,9 @@ export async function runResearch(o: {
     writeFileSync(join(o.appDir, "job", "company.md"), renderCompanyMd(value));
     return outcome(value);
   } catch (e) {
-    if (e instanceof UserError) return { research: null, status: "failed", warning: `research failed: ${e.message} (logs: ${logs})` };
+    if (e instanceof UserError) {
+      return { research: null, status: "failed", warning: `research failed: ${e.message} (logs: ${logs})`, ...(harnessUnavailable(e) ? { retry: true } : {}) };
+    }
     throw e;
   } finally {
     unregister();
