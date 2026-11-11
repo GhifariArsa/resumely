@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import { slugify } from "../application/slug";
 import { UserError } from "../errors";
 import { normaliseSkill } from "../pipeline/validate";
+import { sameAsLive } from "./accept";
 import { AboutChange, DraftEntry, Proposal, type Draft } from "./proposal";
 import type { Entry, EntryType, Profile } from "./schema";
 
@@ -155,6 +156,13 @@ export function stageDrafts(
       if (dup) {
         kind = "duplicate";
         target_id = dup.id;
+      }
+    }
+    if (kind === "update") {
+      const liveEntry = profile.entries.find((x) => x.id === target_id);
+      if (liveEntry && sameAsLive({ ...entry, id: target_id! }, liveEntry)) {
+        skipped.push(`${target_id}: no changes`);
+        continue;
       }
     }
     const same = pending.find(

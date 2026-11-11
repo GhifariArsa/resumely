@@ -93,3 +93,14 @@ describe("stageDrafts", () => {
     expect(again.skipped.join("\n")).toContain("already in the inbox");
   });
 });
+
+describe("stageDrafts no-op updates", () => {
+  test("an update equal to the live entry is skipped", () => {
+    const profile = loadProfile(pdir);
+    const live = profile.entries.find((e) => e.id === "proj-routekit")!;
+    const same = draft({ type: "project", title: live.title, org: live.org, location: live.location, start: live.start, end: live.end as DraftEntry["end"], url: live.url, skills: live.skills, tags: live.tags, bullets: [] });
+    const r = stageDrafts(pdir, profile, [{ kind: "update", target_id: "proj-routekit", entry: { ...same, context: live.body }, rationale: "r" }], {}, src);
+    expect(r.staged).toHaveLength(0);
+    expect(r.skipped).toContain("proj-routekit: no changes");
+  });
+});
