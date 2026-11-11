@@ -30,12 +30,11 @@ export type AddFlags = {
 };
 
 const Extra = { rationale: z.string().optional() };
-const EntryInput = DraftEntry.extend({ update: z.string().optional(), ...Extra });
-const SkillsInput = z.object({ type: z.literal("skills"), skills: z.record(z.string(), z.array(z.string())), ...Extra });
-const AboutInput = z.object({ type: z.literal("about"), about: AboutChange, ...Extra });
+const EntryInput = DraftEntry.extend({ update: z.string().optional(), ...Extra }).strict();
+const SkillsInput = z.object({ type: z.literal("skills"), skills: z.record(z.string(), z.array(z.string())), ...Extra }).strict();
+const AboutInput = z.object({ type: z.literal("about"), about: AboutChange.strict(), ...Extra }).strict();
 
-export const AddInput = z.union([EntryInput, SkillsInput, AboutInput]);
-export type AddInput = z.infer<typeof AddInput>;
+export type AddInput = z.infer<typeof EntryInput> | z.infer<typeof SkillsInput> | z.infer<typeof AboutInput>;
 
 const HELP = "resumely profile add --help";
 const invalid = (msgs: string[]) => new UserError(`invalid proposal: ${msgs.join("; ")}`, HELP);
@@ -84,7 +83,8 @@ export function parseAddInput(type: string | undefined, flags: AddFlags, json: u
     raw = fromFlags(type, flags);
   }
   if (typeof raw.type !== "string" || !TYPES.includes(raw.type)) throw invalid([`type: must be one of ${TYPES.join(", ")}`]);
-  const r = AddInput.safeParse(raw);
+  const schema = raw.type === "skills" ? SkillsInput : raw.type === "about" ? AboutInput : EntryInput;
+  const r = schema.safeParse(raw);
   if (!r.success) throw invalid(schemaErrors(r.error.issues));
   return r.data;
 }

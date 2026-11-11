@@ -83,3 +83,18 @@ describe("stageAdd", () => {
     expect(err(() => stageAdd(pdir, loadProfile(pdir), input, manual))).toBeInstanceOf(UserError);
   });
 });
+
+describe("JSON error paths and unknown keys", () => {
+  const msg = (json: unknown) => err(() => parseAddInput(undefined, flags(), json)).message;
+  test("skills variant reports its path", () => {
+    expect(msg({ type: "skills", skills: { A: "x" } })).toContain("skills.A");
+  });
+  test("about variant reports its path", () => {
+    expect(msg({ type: "about", about: { links: "x" } })).toContain("about.links");
+  });
+  test("unknown keys error with the key name", () => {
+    expect(msg({ type: "experience", title: "T", bullet: ["x"] })).toContain("bullet");
+    expect(msg({ type: "skills", skills: {}, skill: ["x"] })).toContain("skill");
+    expect(msg({ type: "about", about: { headlin: "x" } })).toContain("headlin");
+  });
+});
