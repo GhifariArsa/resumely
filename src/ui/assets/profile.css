@@ -1,0 +1,23 @@
+.profile { max-width: 760px; }
+.profile .headline { color: var(--pencil); margin: 0 0 8px; }
+.in-page { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 12px 0 24px; }
+.profile section { margin: 0 0 32px; }
+.profile h3 { font-size: 18px; margin: 24px 0 8px; }
+.profile h4 { font-size: 13px; font-weight: 600; color: var(--pencil); margin: 12px 0 4px; }
+.lint-summary { margin: 0 0 8px; }
+.issues, .usage { list-style: none; padding: 0; margin: 8px 0; }
+.issues li { padding: 4px 0; border-bottom: 1px solid var(--rule); overflow-wrap: anywhere; }
+.severity { font-weight: 600; }
+.issue-error .severity { color: var(--danger); }
+.issue-warning .severity { color: var(--s-interviewing); }
+.entry { border-bottom: 1px solid var(--rule); padding: 8px 0; }
+.entry > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.entry-title { font-weight: 600; }
+.entry-org, .entry-dates { color: var(--pencil); font-variant-numeric: tabular-nums; }
+.entry-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 8px 0; }
+.entry p { margin: 4px 0; }
+.usage li { padding: 2px 0; }
+.usage .meta { margin-left: 8px; font-variant-numeric: tabular-nums; }
+.entry .doc-text { white-space: pre-wrap; margin-top: 12px; overflow-wrap: anywhere; }
+#context summary { cursor: pointer; }
+pre.context { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--sheet); border: 1px solid var(--rule); padding: 12px; border-radius: 4px; max-height: 70vh; overflow: auto; }
