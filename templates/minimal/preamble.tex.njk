@@ -1,0 +1,22 @@
+\documentclass[11pt,letterpaper,sans]{moderncv}
+\moderncvstyle{banking}
+\moderncvcolor{black}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[scale=0.8]{geometry}
+\usepackage{amssymb}
+\usepackage{accsupp}
+\input{glyphtounicode}
+\pdfgentounicode=1
+
+% The math-font check mark would extract as "X", so tag it with its real character.
+\let\resumelyCheckmark\checkmark
+\renewcommand{\checkmark}{\BeginAccSupp{method=hex,unicode,ActualText={2713}}\resumelyCheckmark\EndAccSupp{}}
+
+% Contact-line icons are decoration: hide their glyph names from text extraction
+\newcommand{\resumelyHideIcon}[1]{%
+  \let\resumelyTmp=#1%
+  \edef#1{\noexpand\BeginAccSupp{ActualText={}}\unexpanded\expandafter{\resumelyTmp}\noexpand\EndAccSupp{}}}
+\AtBeginDocument{%
+  \resumelyHideIcon{\mobilephonesymbol}\resumelyHideIcon{\emailsymbol}\resumelyHideIcon{\homepagesymbol}%
+  \resumelyHideIcon{\linkedinsocialsymbol}\resumelyHideIcon{\githubsocialsymbol}}

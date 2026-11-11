@@ -1,0 +1,6 @@
+id = "minimal"
+name = "Minimal"
+description = "Clean sans-serif single-column resume with a centred name and section rules, based on moderncv's banking style (LPPL 1.3c)."
+engine = "pdflatex"
+supports = ["resume", "cover-letter"]
+packages = ["moderncv.cls", "fontawesome5", "accsupp", "hyperref"]

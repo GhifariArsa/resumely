@@ -1,0 +1,7 @@
+((* set parts = about.name.split(" ") *))
+\name{(((parts[0])))}{((( parts.slice(1).join(" ") )))}
+((* if about.phone *))\phone[mobile]{(((about.phone)))}
+((* endif *))((* if about.email *))\email{(((about.email)))}
+((* endif *))((* if about.location *))\address{(((about.location)))}{}{}
+((* endif *))((* for l in about.links *))((* set lab = l.label | lower *))((* if "github" in lab *))\social[github]{((( l.url | replace("https://github.com/", "") | replace("http://github.com/", "") | replace("www.github.com/", "") )))}((* elif "linkedin" in lab *))\social[linkedin]{((( l.url | replace("https://www.linkedin.com/in/", "") | replace("https://linkedin.com/in/", "") | replace("/", "") )))}((* else *))\homepage{((( l.url | replace("https://", "") | replace("http://", "") )))}((* endif *))
+((* endfor *))

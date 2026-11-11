@@ -1,0 +1,28 @@
+%-------------------------
+% Cover letter (resumely minimal): moderncv "banking" style, see LICENSE
+%-------------------------
+
+((* include "preamble.tex.njk" *))
+((* include "header.tex.njk" *))
+
+\AtBeginDocument{\hypersetup{pdfauthor={(((about.name)))}, pdftitle={(((about.name))) — Cover Letter}, pdfsubject={(((job.role))) at (((job.company)))}}}
+
+\recipient{Hiring Team}{(((job.company)))}
+\date{(((date)))}
+\opening{(((letter.greeting)))}
+\closing{(((letter.closing)))}
+
+\begin{document}
+
+\makelettertitle
+
+\textbf{Re: (((job.role)))}
+((* for p in letter.paragraphs *))
+
+(((p.text)))
+((* endfor *))
+
+\makeletterclosing
+
+\par\message{RESUMELY-FILL \the\pagetotal\space\the\textheight}
+\end{document}

@@ -1,0 +1,35 @@
+%-------------------------
+% Resume (resumely minimal): moderncv "banking" style, see LICENSE
+%-------------------------
+
+((* include "preamble.tex.njk" *))
+((* include "header.tex.njk" *))
+
+\AtBeginDocument{\hypersetup{pdfauthor={(((about.name)))}, pdftitle={(((about.name))) — Resume}((* if job *)), pdfsubject={(((job.role))) at (((job.company)))}((* endif *))}}
+
+\begin{document}
+
+\makecvtitle
+((* if resume.summary *))
+
+\cvitem{}{(((resume.summary.text)))}
+((* endif *))
+((* for s in resume.sections *))
+
+\section{(((s.title)))}
+((* for it in s.items *))
+\cventry{(((it.dates)))}{(((it.heading)))}{(((it.subheading)))}{(((it.location)))}{}{((* if it.bullets.length *))\begin{itemize}
+((* for b in it.bullets *))\item (((b.text)))
+((* endfor *))\end{itemize}((* endif *))}
+((* endfor *))
+((* endfor *))
+((* if resume.skills.length *))
+
+\section{Technical Skills}
+((* for k in resume.skills *))
+\cvitem{(((k.category)))}{((( k.items | join(", ") )))}
+((* endfor *))
+((* endif *))
+
+\par\message{RESUMELY-FILL \the\pagetotal\space\the\textheight}
+\end{document}
