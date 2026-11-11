@@ -170,7 +170,8 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
 
 /**
  * Continue a failed (or abandoned) run from its last finished step: `runId`, or the newest failed run. It reuses the
- * run's options, job text and profile snapshot; `harness` replaces the run's harness from here on.
+ * run's options, job text and profile snapshot; `harness` replaces the run's harness from here on. Without `runId`,
+ * reports the run it picked through `onProgress`.
  */
 export async function resumeRun(o: {
   root: string;
@@ -195,6 +196,7 @@ export async function resumeRun(o: {
     if (!existsSync(dir)) throw new UserError(`Application folder for run ${runId} is gone: ${dir}`, "Move it back, or use resumely mv to rename applications");
     app = findApplication(l.applications, slug);
   }
+  if (o.runId === undefined) o.onProgress?.(`resuming ${runId}${app ? ` (${app.meta.company} — ${app.meta.role})` : ""}`);
   cp.setHarness(harness);
   return runPipeline({
     root: o.root, input: { ...options.input, text: cp.jobText }, open: o.open, onProgress: o.onProgress, onDuplicate: o.onDuplicate,

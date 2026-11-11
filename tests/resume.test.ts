@@ -114,6 +114,7 @@ describe.skipIf(!hasLatex)("checkpointed runs", () => {
 
     const progress: string[] = [];
     const r = await resumeRun({ root, open: false, onProgress: (m) => progress.push(m) });
+    expect(progress[0]).toBe(`resuming ${first.runId} (Atlas Freight — Senior Backend Engineer)`);
     expect(progress).toEqual(expect.arrayContaining(["parse: reused from checkpoint", "research: reused from checkpoint"]));
     expect(calls()).toEqual(["cover-write", "cover-review-1"]);
     expect(r.runId).toBe(first.runId);
@@ -182,7 +183,16 @@ describe.skipIf(!hasLatex)("checkpointed runs", () => {
     expect(state(runId!)).toMatchObject({ status: "failed", app: null, error: { kind: "rate_limit" } });
 
     resetCalls();
-    const r = await resumeRun({ root, runId, open: false });
+    // Picked without an id, before any application exists: the line has no company/role (this attempt fails at parse again).
+    const picked: string[] = [];
+    process.env.FAKE_HARNESS_FAIL_STEP = "parse";
+    await resumeRun({ root, open: false, onProgress: (m) => picked.push(m) }).catch(() => {});
+    delete process.env.FAKE_HARNESS_FAIL_STEP;
+    expect(picked[0]).toBe(`resuming ${runId}`);
+    resetCalls();
+    const progress: string[] = [];
+    const r = await resumeRun({ root, runId, open: false, onProgress: (m) => progress.push(m) });
+    expect(progress.some((m) => m.startsWith("resuming "))).toBe(false);
     expect(calls()[0]).toBe("parse");
     expect(r.resume?.version).toBe(1);
     expect(r.cover?.version).toBe(1);
