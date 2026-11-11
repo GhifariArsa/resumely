@@ -226,3 +226,28 @@ describe("integration A: partial updates in review", () => {
     expect(diffAt).toBeLessThan(second.indexOf("[u]pdate exp-acme-robotics / [n]ew entry"));
   });
 });
+
+describe("fix round 1: an edited update owns only the sections it contains", () => {
+  const atlas = () => join(pdir, "experience/atlas-labs.md");
+  const withContext = () => writeFileSync(atlas(), readFileSync(atlas(), "utf8") + "\n## Context\n\nLive story about billing.\n");
+
+  test("e (saved unchanged) then a on a bullet-only update keeps the live ## Context", async () => {
+    withContext();
+    mk("update", "exp-atlas-labs", { title: "Senior Software Engineer", bullets: ["Edited bullet"] }, "exp-atlas-labs");
+    const { r } = await run(["e", "a"], async () => {});
+    expect(r.accepted).toHaveLength(1);
+    const text = readFileSync(atlas(), "utf8");
+    expect(text).toContain("- Edited bullet");
+    expect(text).toContain("## Context\n\nLive story about billing.");
+  });
+
+  test("an edit that includes ## Context replaces the live one", async () => {
+    withContext();
+    mk("update", "exp-atlas-labs", { title: "Senior Software Engineer", bullets: ["Edited bullet"] }, "exp-atlas-labs");
+    const edit = async (f: string) => void (await Bun.write(f, readFileSync(f, "utf8") + "\n## Context\n\nEdited story.\n"));
+    await run(["e", "a"], edit);
+    const text = readFileSync(atlas(), "utf8");
+    expect(text).toContain("## Context\n\nEdited story.");
+    expect(text).not.toContain("Live story about billing.");
+  });
+});

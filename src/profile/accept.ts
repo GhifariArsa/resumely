@@ -71,15 +71,12 @@ export function normaliseBody(body: string): string {
   return joinSections(sections(body));
 }
 
-/** Headings an entry proposal speaks for: rendered from its bullets/context, or (after a review edit) its whole body. */
-const ENTRY_OWNED = ["highlights", "context"];
-
 /**
- * Live sections with a proposal's sections merged in: the proposal's preamble replaces the live preamble; each proposal `## `
- * section replaces the live section with the same heading in place, or is appended; live sections in `owned` that the
- * proposal lacks are dropped; every other live section, and every `## Private` section, is kept verbatim.
+ * Live sections with a proposal's sections merged in: the proposal's preamble replaces the live preamble; each
+ * proposal `## ` section replaces the live section with the same heading in place, or is appended; every other live
+ * section, and every `## Private` section, is kept verbatim.
  */
-function mergeSections(live: Section[], proposed: Section[], owned: string[]): string {
+function mergeSections(live: Section[], proposed: Section[]): string {
   const [pre, ...prop] = proposed.filter((s) => !s.private);
   const byKey = new Map<string, Section>();
   for (const s of prop) if (!byKey.has(s.key!)) byKey.set(s.key!, s);
@@ -90,7 +87,7 @@ function mergeSections(live: Section[], proposed: Section[], owned: string[]): s
     if (mine) {
       if (!used.has(mine)) out.push(mine);
       used.add(mine);
-    } else if (s.private || !owned.includes(s.key!)) {
+    } else {
       out.push(s);
     }
   }
@@ -99,25 +96,25 @@ function mergeSections(live: Section[], proposed: Section[], owned: string[]): s
 }
 
 /** `liveBody` with `proposed` merged in (see `mergeSections`); used for the about.md summary. */
-export function mergeBody(liveBody: string, proposed: string, owned: string[] = []): string {
-  return mergeSections(sections(liveBody), sections(proposed), owned);
+export function mergeBody(liveBody: string, proposed: string): string {
+  return mergeSections(sections(liveBody), sections(proposed));
 }
 
 /**
- * The live entry body with an update proposal merged in. A proposal without bullets (or context) leaves the live
- * Highlights (or Context) alone; an edited body speaks for both. The live preamble stays unless the proposal has its
- * own; when the live file has no `## Highlights`, its preamble holds the highlights and is replaced in place by them.
+ * The live entry body with an update proposal merged in. Each `## ` section the proposal has (from its bullets and
+ * context, or its edited body) replaces the live one; a live section the proposal lacks is kept, since an edited body
+ * never showed it. The live preamble stays unless the proposal has its own; when the live file has no
+ * `## Highlights`, its preamble holds the highlights and is replaced in place by them.
  */
 function mergeEntryBody(liveBody: string, e: ProposedEntry): string {
   const proposed = sections(renderBody(e));
-  const owned = e.body !== undefined ? ENTRY_OWNED : ENTRY_OWNED.filter((k) => proposed.some((s) => s.key === k));
   let live = sections(liveBody);
   if (!proposed[0]!.text) {
     const [livePre, ...rest] = live;
     if (live.some((s) => s.key === "highlights")) proposed[0] = livePre!;
     else if (livePre!.text) live = [{ key: null, private: false, text: "" }, { ...livePre!, key: "highlights" }, ...rest];
   }
-  return mergeSections(live, proposed, owned);
+  return mergeSections(live, proposed);
 }
 
 /** Merge `extra` private sections (from a review edit) after the body, skipping any the body already has verbatim. */
