@@ -49,3 +49,8 @@ export function loadConfig(root: string): Config {
   }
   return result.data;
 }
+
+/** The config used when none (or an invalid one) exists. */
+export function defaultConfig(): Config {
+  return ConfigSchema.parse({});
+}

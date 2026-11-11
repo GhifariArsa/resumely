@@ -8,6 +8,7 @@ import { resolveDataRoot, requireDataRoot, layout } from "./paths";
 import { loadProfile } from "./profile/load";
 import { formatEntry, formatProfileContext, formatProfileTree } from "./profile/context";
 import { initDataRoot } from "./commands/init";
+import { formatDoctor, runDoctor } from "./commands/doctor";
 import { openFile } from "./commands/open";
 import { resolveJobInput } from "./job/intake";
 import { addNote, findApplication, listApplications } from "./application/store";
@@ -202,6 +203,15 @@ templates
     const t = newTemplate(dataRoot(), id, o.from);
     console.log(`created ${t.dir}`);
     console.log(`hint: edit ${t.dir}/resume.tex.njk, then: resumely render <app> --template ${id}`);
+  });
+
+program
+  .command("doctor")
+  .description("Check harnesses, LaTeX, templates and your data root")
+  .action(async () => {
+    const { text, failed } = formatDoctor(await runDoctor({ root: resolveDataRoot() }));
+    console.log(text);
+    if (failed > 0) process.exitCode = 1;
   });
 
 try {
