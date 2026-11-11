@@ -5,6 +5,7 @@ import { slugify } from "../application/slug";
 import { UserError } from "../errors";
 import { normaliseSkill } from "../pipeline/validate";
 import { sameAsLive } from "./accept";
+import { loadProfile } from "./load";
 import { AboutChange, DraftEntry, Proposal, type Draft } from "./proposal";
 import type { Entry, EntryType, Profile } from "./schema";
 
@@ -216,4 +217,15 @@ export function stageDrafts(
     }
   }
   return { staged, skipped };
+}
+
+/** What `apply` should know before starting: an empty profile is an error, pending proposals a warning. */
+export function profileReadiness(profileDir: string): { error?: UserError; warnings: string[] } {
+  const warnings: string[] = [];
+  const pending = listProposals(profileDir).length;
+  if (pending) warnings.push(`${pending} profile proposals awaiting review (resumely profile review)`);
+  if (loadProfile(profileDir).entries.length === 0) {
+    return { error: new UserError("Your profile has no entries yet", "Run: resumely profile import <resume.pdf>, then resumely profile review"), warnings };
+  }
+  return { warnings };
 }

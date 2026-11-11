@@ -18,12 +18,87 @@ bun link        # puts `resumely` on your PATH
 ## Quickstart
 
 ```sh
-resumely init                # creates ~/resumely/ with a starter profile and config.toml
-# edit ~/resumely/profile/   (about.md, skills.yaml, experience/, projects/, education/, extras/)
-resumely apply --clip        # job description from the clipboard (or pass a file or URL)
-resumely ls                  # list applications
-resumely open <app>          # open the latest resume PDF, or the cover letter if there is no resume (--version N for another)
+resumely init                                     # creates ~/resumely/ with a starter profile and config.toml
+resumely profile import ~/Downloads/resume.pdf    # or a LinkedIn PDF, .docx, .md, or a URL
+resumely profile review                           # accept what's right (nothing reaches your profile without this)
+resumely apply --clip                             # job description from the clipboard (or pass a file or URL)
+resumely ls                                       # list applications
+resumely open <app>                               # open the latest resume PDF, or the cover letter if there is no resume (--version N for another)
 ```
+
+`apply` refuses an empty profile (it tells you to import one) and warns when proposals are still waiting in the review inbox.
+
+## Building your profile
+
+You don't have to write the profile by hand. Agents propose entries; you decide. Everything lands in a review inbox (`profile/.inbox/`, one JSON proposal per file) and only `resumely profile review` writes entry files, `skills.yaml` or `about.md`. Agents never write the live profile.
+
+### Import
+
+```sh
+resumely profile import <file|url> [--harness <name>]
+```
+
+Supported sources and what they need:
+
+- PDF: `pdftotext` (poppler). The original PDF is also given to the agent as a layout reference.
+- DOCX: converted to text by `textutil` (macOS), else `pandoc`, else `unzip`; one of them must be installed.
+- `.md`, `.txt`, `.html`: read directly.
+- A URL (for example a public portfolio page): fetched by resumely itself. This extends the "job URLs only" network rule to URLs you explicitly pass to `import`; resumely never fetches anything you didn't ask for.
+
+The agent compares the document with your current profile and proposes new entries, updates to existing entries, possible duplicates, skills and `about` details. Resumely assigns the entry ids. Progress goes to stderr; stdout lists what was staged.
+
+**Truthfulness rule.** An import may only state what the source says. Every number in a title, bullet, context, headline or summary must appear in the source text, every skill must appear as a whole word in it, the year of each start/end date must appear in it, and `about` name, email, phone and links must appear in it. Violations make the agent retry (up to 2 times), then the import fails with the workspace kept under `.runs/`. Proper nouns that don't appear in the source can't be ruled out as easily, so they are shown as `! unsourced "<name>"` flags on the proposal for you to check. Year-only dates in a source are left out rather than guessed, and the proposal's rationale says so.
+
+### Review
+
+```sh
+resumely profile review            # interactive
+resumely profile review --list     # what is waiting
+resumely profile review --accept 3 --reject 4 [--as update|new]
+resumely profile review --accept-all
+```
+
+Interactive keys: `a` accept, `e` edit in `$VISUAL`/`$EDITOR` (split on whitespace, never run through a shell), `r` reject, `s` skip, `q` quit; a possible duplicate offers `u` update the existing entry and `n` add as a new entry. Accepting an update keeps the existing entry's `## Private` sections. `--accept-all` skips possible duplicates, which need an explicit `--accept <pid> --as update|new`. Decided proposals are moved to `profile/.inbox/archive/` with the decision, as an audit trail.
+
+### Add one thing
+
+```sh
+resumely profile add experience --title "Staff Engineer" --org "Acme" --start 2025-01 --end present --bullet "Cut fleet downtime 35%"
+resumely profile add --json - <<'EOF'
+{"type":"experience","title":"Staff Engineer","org":"Acme","start":"2025-01","end":"present","bullets":["Cut fleet downtime 35%"]}
+EOF
+```
+
+`profile add` stages a proposal too (types: experience, project, education, award, publication, volunteering, certification, other, skills, about). Use `--update <id>` to propose a change to an existing entry. It is also the command the interview agent calls.
+
+### Interview
+
+```sh
+resumely interview [--harness <name>] [--focus "recent work at Acme"]
+```
+
+Opens your agent harness interactively (interactive terminals only) in a workspace holding your profile, minus private content, plus instructions to interview you. The agent stages what it learns with `profile add`; your harness's own permission prompt gates each call. Review the result with `profile review`. The launch command per harness is built in; override it with `interactive_command` on an adapter (an argv array; `{prompt}`, `{workspace}` and `{inbox}` are substituted):
+
+```toml
+[adapters.mine]
+interactive_command = ["my-agent", "{prompt}"]
+```
+
+### Lint
+
+```sh
+resumely profile lint [--json]
+```
+
+Prints problems and exits 1 if any is an `error`. Codes: `parse-error`, `duplicate-id`, `end-before-start` and `future-start` (errors); `future-end`, `missing-dates`, `outcome-less-bullet` (a bullet without a measurable result), `duplicate-skill`, `private-heading`, `unused-entry` (not cited by any resume or cover letter; only checked once you have applications) and `pending-proposals` (warnings).
+
+### Trace
+
+```sh
+resumely trace <app> [--cover] [--version N] [--json]
+```
+
+Shows each resume bullet (or cover-letter paragraph) with the profile entries it came from, whether it was a direct or inferred claim, any unsourced-token flags, the gaps and the warnings from the checks.
 
 ### apply
 
@@ -46,7 +121,7 @@ Other commands:
 - `status <app> <drafted|applied|interviewing|rejected|offer>`: `applied` is refused while a document is not ready unless you pass `--force`
 - `note <app> <text...>`: dated note on an application
 - `export <app> [--version N] [--to <dir>]`: copy the send-ready PDFs of whichever documents exist (default `~/Desktop`)
-- `profile show [id]`, `profile context`
+- `profile show [id]`, `profile context`, `profile import`, `profile review`, `profile add`, `profile lint`, `interview`, `trace` (see [Building your profile](#building-your-profile))
 
 Set `RESUMELY_HOME` to use a different data root. Every run produces versioned outputs under `applications/<date>-<company>-<role>/{resume,cover-letter}/vN/` (PDF, source, trace, `review.json`, `meta.json`).
 
@@ -129,11 +204,12 @@ check = ["pi", "--version"]
 
 The pi preset defaults to pi's default provider (google). If that provider isn't authenticated, override the adapter as above with a provider you have set up (`pi auth check --provider <name>`); pi requires a configured provider.
 
-## Status: P2
+## Status: P4
 
 Works now:
 
 - `init`, `profile show`, `profile context`
+- Profile building: `profile import` (PDF, DOCX, Markdown, text, HTML, URL), the review inbox (`profile review`), `profile add`, `interview`, `profile lint`, and `trace`
 - `apply`: job parse, company research, tailored resume and cover letter with review loop, gaps, traces, `--stretch`
 - Versioned applications: `ls`, `open`, `render`, `status`, `note`, `export`
 - Private-content withholding
@@ -141,4 +217,4 @@ Works now:
 
 Coming next:
 
-- Roadmap beyond P2: see [design.md](design.md)
+- Roadmap beyond P4: see [design.md](design.md)

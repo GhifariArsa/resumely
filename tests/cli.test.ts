@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
@@ -140,6 +140,23 @@ describe.skipIf(!hasLatex)("apply flow", () => {
   }, 120_000);
 });
 
+describe.skipIf(!hasLatex)("trace and gaps hint", () => {
+  test("apply prints the interview hint; trace reads the stored version", async () => {
+    const r = await cli("apply", jobFile, "--no-open");
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("hint: if any of these are true, add them: resumely interview --focus");
+    const slug = apps()[0]!;
+    const t = await cli("trace", slug);
+    expect(t.code).toBe(0);
+    expect(t.stdout).toContain("resume v1");
+    expect(t.stdout).toContain("exp-atlas-labs");
+    expect((await cli("trace", slug, "--cover")).stdout).toContain("paragraph 1");
+    const j = JSON.parse((await cli("trace", slug, "--json")).stdout);
+    expect(j.kind).toBe("resume");
+    expect(j.rows.length).toBeGreaterThan(0);
+  }, 120_000);
+});
+
 describe("profile add", () => {
   async function cliIn(stdin: string, ...args: string[]) {
     const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), ...args], {
@@ -229,4 +246,124 @@ test("interview on a non-TTY exits 1", async () => {
   const r = await cli("interview");
   expect(r.code).toBe(1);
   expect(r.stderr).toContain("interview needs an interactive terminal");
+});
+
+describe("new-user path", () => {
+  const callsFile = () => join(root, "script.json.calls");
+  const proposalsScript = {
+    import: [{
+      "out/proposals.json": {
+        proposals: [
+          { kind: "new", entry: { type: "experience", title: "Staff Engineer", org: "Acme Robotics", start: "2025-01", end: "present", skills: ["Rust"], tags: [], bullets: ["Cut fleet downtime 35% across 120 robots"] }, rationale: "New role" },
+          { kind: "update", target_id: "exp-atlas-labs", entry: { type: "experience", title: "Senior Software Engineer", org: "Atlas Labs", location: "Montreal, QC", start: "2023-03", end: "present", skills: ["TypeScript"], tags: [], bullets: ["Reduced infra spend by 18%"] }, rationale: "Adds a result" },
+        ],
+        skills: { Languages: ["Rust"] },
+        about: null,
+      },
+    }],
+  };
+
+  test("init prints the next steps", async () => {
+    const fresh = mkdtempSync(join(tmpdir(), "resumely-init-"));
+    try {
+      const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "init"], { env: { ...process.env, RESUMELY_HOME: fresh }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const out = await new Response(p.stdout).text();
+      await p.exited;
+      expect(out).toContain("resumely profile import");
+      expect(out).toContain("resumely apply --clip");
+    } finally {
+      rmSync(fresh, { recursive: true, force: true });
+    }
+  });
+
+  test("--help has a Getting started block", async () => {
+    expect((await cli("--help")).stdout).toContain("Getting started:");
+  });
+
+  test("profile import stages proposals; review --accept-all makes them live", async () => {
+    setScript(proposalsScript);
+    const r = await cli("profile", "import", join(fx, "import", "resume.md"));
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("staged 3 proposals");
+    expect(r.stdout).toContain("exp-acme-robotics");
+    expect(r.stdout).toContain("next: resumely profile review");
+    expect(r.stderr).toContain("extracting proposals");
+    expect((await cli("profile", "review", "--accept-all")).code).toBe(0);
+    expect((await cli("profile", "show", "exp-acme-robotics")).code).toBe(0);
+  });
+
+  test("profile import with nothing new says so", async () => {
+    setScript({ import: [{ "out/proposals.json": { proposals: [], skills: {}, about: null } }] });
+    const r = await cli("profile", "import", join(fx, "import", "resume.md"));
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("nothing new found in");
+  });
+
+  test("profile import rejects an unsupported file", async () => {
+    writeFileSync(join(root, "nope.rtf"), "{\\rtf1 hi}");
+    const r = await cli("profile", "import", join(root, "nope.rtf"));
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("hint: Use .pdf");
+  });
+
+  test("profile lint reports, fails on errors, and has --json", async () => {
+    const ok = await cli("profile", "lint");
+    expect(ok.code).toBe(0);
+    expect(ok.stdout).toContain("outcome-less-bullet");
+    expect(Array.isArray(JSON.parse((await cli("profile", "lint", "--json")).stdout))).toBe(true);
+    writeFileSync(join(layout(root).profile, "projects", "routekit.md"), "---\n: [bad\n---\nbody\n");
+    const bad = await cli("profile", "lint");
+    expect(bad.code).toBe(1);
+    expect(bad.stdout).toContain("parse-error");
+  });
+
+  test("apply refuses an empty profile without calling the agent", async () => {
+    for (const sub of ["experience", "projects", "education", "extras"]) {
+      const d = join(layout(root).profile, sub);
+      for (const f of readdirSync(d)) rmSync(join(d, f), { recursive: true, force: true });
+    }
+    const r = await cli("apply", jobFile, "--no-open");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("hint: Run: resumely profile import");
+    expect(existsSync(callsFile())).toBe(false);
+  });
+
+  test("apply warns about pending proposals", async () => {
+    const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: new Blob([JSON.stringify({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] })]), stdout: "pipe", stderr: "pipe",
+    });
+    await add.exited;
+    const r = await cli("apply", jobFile, "--no-open");
+    expect(r.stderr).toContain("1 profile proposals awaiting review");
+  });
+});
+
+describe.skipIf(Bun.which("expect") === null)("profile review editor keeps stdin", () => {
+  test("the editor receives keystrokes typed after it opens, and review continues", async () => {
+    const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: new Blob([JSON.stringify({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] })]), stdout: "pipe", stderr: "pipe",
+    });
+    await add.exited;
+    const exp = join(root, "pty.exp");
+    const log = join(root, "pty.log");
+    writeFileSync(exp, `set timeout 20
+log_file -noappend ${log}
+spawn bun ${join(import.meta.dir, "../src/cli.ts")} profile review
+expect "uit: "
+send "e\\r"
+sleep 2
+send "HELLO-FROM-KEYS\\r"
+expect "uit: "
+send "q\\r"
+expect eof
+`);
+    const p = Bun.spawn(["expect", exp], {
+      env: { ...process.env, RESUMELY_HOME: root, EDITOR: `sh ${join(fx, "fake-editor-stdin.sh")}` },
+      stdin: "ignore", stdout: "ignore", stderr: "ignore",
+    });
+    await p.exited;
+    const out = readFileSync(log, "utf8");
+    expect(out).toContain("<!-- typed: HELLO-FROM-KEYS -->");
+    expect(out).toContain("1 still pending");
+  }, 40_000);
 });

@@ -1,3 +1,4 @@
+import { readSync } from "node:fs";
 import type { Application } from "../application/store";
 import type { ParsedJob } from "../pipeline/schemas";
 
@@ -6,22 +7,32 @@ export const isInteractive = (): boolean => Boolean(process.stdin.isTTY);
 type Chunks = { [Symbol.asyncIterator](): { next(): Promise<IteratorResult<string | Uint8Array>>; return?(value?: unknown): unknown } };
 export type PromptIO = { input?: Chunks; output?: { write(s: string): unknown } };
 
-/** Asks questions on `output` and reads answers line by line from `input`; `ask` gives null at EOF. */
-async function* stdinChunks(): AsyncGenerator<string | Uint8Array> {
-  const reader = Bun.stdin.stream().getReader();
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) return;
-      yield value as Uint8Array;
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
+/**
+ * fd 0 as chunks, read only while a question is pending. Nothing reads ahead, so a child that inherits stdin
+ * (the review's editor) gets every keystroke typed while it runs.
+ */
+const stdinChunks: Chunks = {
+  [Symbol.asyncIterator]: () => ({
+    async next(): Promise<IteratorResult<Uint8Array>> {
+      const buf = Buffer.alloc(4096);
+      for (;;) {
+        try {
+          const n = readSync(0, buf, 0, buf.length, null);
+          return n === 0 ? { done: true, value: undefined } : { done: false, value: buf.subarray(0, n) };
+        } catch (e) {
+          const code = (e as NodeJS.ErrnoException).code;
+          if (code === "EOF") return { done: true, value: undefined };
+          if (code !== "EAGAIN") throw e;
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      }
+    },
+  }),
+};
 
-export function lineReader({ input = stdinChunks(), output = process.stderr }: PromptIO) {
-  const chunks = input[Symbol.asyncIterator]();
+/** Asks questions on `output` and reads answers line by line from `input`; `ask` gives null at EOF. */
+export function lineReader({ input, output = process.stderr }: PromptIO) {
+  const chunks = (input ?? stdinChunks)[Symbol.asyncIterator]();
   const decoder = new TextDecoder();
   let buf = "";
   let eof = false;

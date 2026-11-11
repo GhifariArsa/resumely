@@ -7,7 +7,10 @@ import { UserError } from "./errors";
 import { resolveDataRoot, requireDataRoot, layout } from "./paths";
 import { loadProfile } from "./profile/load";
 import { acceptProposal, rejectProposal } from "./profile/accept";
-import { findProposal, listProposals } from "./profile/inbox";
+import { findProposal, listProposals, profileReadiness } from "./profile/inbox";
+import { importProfile } from "./profile/import";
+import { formatLint, lintProfile } from "./profile/lint";
+import { buildTrace, formatTrace } from "./application/trace";
 import { formatInboxList, reviewInbox } from "./profile/review";
 import { parseAddInput, stageAdd, type AddFlags } from "./profile/add";
 import type { Proposal } from "./profile/proposal";
@@ -22,8 +25,15 @@ import { confirmParsed, isInteractive, promptDuplicate } from "./commands/prompt
 import { savedNotReadyReasons } from "./pipeline/version";
 import { applyJob, type DocResult, formatApplicationList, renderApplication, resolveOpenTarget } from "./pipeline/apply";
 
+const NEXT_STEPS = [
+  "resumely profile import ~/Downloads/resume.pdf   # or a LinkedIn PDF, .docx, .md, or a URL",
+  "resumely profile review                          # accept what's right",
+  "resumely apply --clip                            # tailor to a job",
+];
+const GETTING_STARTED_HELP = `\nGetting started:\n  resumely init\n${NEXT_STEPS.map((l) => `  ${l}`).join("\n")}`;
+
 const program = new Command();
-program.name("resumely").description("Agent-driven resume tailoring");
+program.name("resumely").description("Agent-driven resume tailoring").addHelpText("after", GETTING_STARTED_HELP);
 
 program
   .command("init")
@@ -32,6 +42,7 @@ program
     const root = resolveDataRoot();
     initDataRoot(root);
     console.log(`Initialized resumely data root at ${root}`);
+    console.log(`\nNext:\n${NEXT_STEPS.map((l) => `  ${l}`).join("\n")}`);
   });
 
 const profile = program.command("profile").description("Inspect your profile");
@@ -148,6 +159,50 @@ profile
     }
   });
 
+profile
+  .command("import <source>")
+  .description("Extract proposals from a resume (PDF, DOCX, Markdown, text, HTML or URL) into the review inbox")
+  .option("--harness <name>", "agent harness to use")
+  .action(async (source: string, o: { harness?: string }) => {
+    const root = dataRoot();
+    const r = await importProfile({ root, source, harness: o.harness, onProgress: progress });
+    if (r.staged.length) {
+      console.log(`staged ${r.staged.length} proposals:`);
+      for (const p of r.staged) {
+        const what = p.entry ? (p.entry.org ? `${p.entry.title} @ ${p.entry.org}` : p.entry.title) : "";
+        console.log(`  ${p.pid}  ${p.kind}  ${p.entry?.id ?? p.kind}${what ? `  ${what}` : ""}`);
+        for (const f of p.flags) console.log(`  ! ${f}`);
+      }
+    } else {
+      console.log(`nothing new found in ${source}`);
+    }
+    if (r.skipped.length) console.log(["skipped:", ...r.skipped.map((s) => `  ${s}`)].join("\n"));
+    for (const w of r.warnings) console.log(`warning: ${w}`);
+    if (r.staged.length) console.log("next: resumely profile review");
+  });
+
+profile
+  .command("lint")
+  .description("Check your profile for problems (dates, empty entries, weak bullets)")
+  .option("--json", "print the issues as JSON")
+  .action((o: { json?: boolean }) => {
+    const issues = lintProfile(dataRoot());
+    console.log(o.json ? JSON.stringify(issues, null, 2) : formatLint(issues));
+    if (issues.some((i) => i.severity === "error")) process.exitCode = 1;
+  });
+
+program
+  .command("trace <app>")
+  .description("Show which profile entries each resume (or --cover letter) line came from")
+  .option("--cover", "trace the cover letter")
+  .option("--version <n>", "version (default latest)")
+  .option("--json", "print the trace as JSON")
+  .action((query: string, o: { cover?: boolean; version?: string; json?: boolean }) => {
+    const app = findApplication(layout(dataRoot()).applications, query);
+    const t = buildTrace(app.dir, o.cover ? "cover-letter" : "resume", parseVersion(o.version));
+    process.stdout.write(o.json ? JSON.stringify(t, null, 2) + "\n" : formatTrace(t));
+  });
+
 program
   .command("interview")
   .description("Open your agent harness interactively to interview you; its proposals wait in the review inbox")
@@ -211,6 +266,9 @@ program
     }
     const interactive = isInteractive();
     if (o.review === true && !interactive) throw new UserError("--review needs an interactive terminal");
+    const ready = profileReadiness(layout(root).profile);
+    if (ready.error) throw ready.error;
+    printWarnings(ready.warnings);
     const into = o.into ? findApplication(layout(root).applications, o.into) : undefined;
     const src = await resolveJobInput(input, { clip: o.clip });
     const r = await applyJob({
@@ -225,6 +283,7 @@ program
     for (const f of r.failures) console.error(`failed: ${f.kind}: ${f.message}${f.hint ? ` (${f.hint})` : ""}`);
     if (r.inferred.length) console.error(["inferred claims to review:", ...r.inferred.map((c) => `  - ${c.text} [${c.entry_ids.join(", ")}]`)].join("\n"));
     if (r.gaps.length) console.error(["gaps:", ...r.gaps.map((g) => `  - ${g.requirement}: ${g.note}`)].join("\n"));
+    if (r.gaps.length) console.error(`hint: if any of these are true, add them: resumely interview --focus "${r.gaps.slice(0, 5).map((g) => g.requirement).join(", ")}"`);
     printWarnings(r.warnings);
     if (r.failures.length || r.resume?.ready === false || r.cover?.ready === false) process.exitCode = 1;
   });
