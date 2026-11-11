@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
 import { UserError } from "./errors";
 import { resolveDataRoot, requireDataRoot, layout } from "./paths";
 import { loadProfile } from "./profile/load";
+import { parseAddInput, stageAdd, type AddFlags } from "./profile/add";
+import type { Proposal } from "./profile/proposal";
 import { formatEntry, formatProfileContext, formatProfileTree } from "./profile/context";
 import { initDataRoot } from "./commands/init";
 import { openFile } from "./commands/open";
@@ -51,6 +53,50 @@ profile
   .command("context")
   .description("Print exactly what the agent will see (private content withheld)")
   .action(() => console.log(formatProfileContext(load())));
+
+const collect = (v: string, prev: string[]) => [...prev, v];
+
+profile
+  .command("add [type]")
+  .description("Stage a proposal in the review inbox (never writes the live profile)")
+  .option("--title <t>").option("--org <o>").option("--location <l>")
+  .option("--start <YYYY-MM>").option("--end <YYYY-MM|present>").option("--url <u>")
+  .option("--skill <s>", "skill (repeatable)", collect, [] as string[])
+  .option("--tag <t>", "tag (repeatable)", collect, [] as string[])
+  .option("--bullet <text>", "bullet (repeatable)", collect, [] as string[])
+  .option("--link <label=url>", "about link (repeatable)", collect, [] as string[])
+  .option("--context <text>").option("--update <id>", "propose a change to an existing entry")
+  .option("--category <c>", "skill group, for type skills").option("--headline <h>").option("--phone <p>")
+  .option("--email <e>").option("--name <n>").option("--summary <s>").option("--rationale <text>")
+  .option("--json <file|->", "read the proposal as JSON from a file, or - for stdin")
+  .option("--source <label>", "where the proposal came from (manual, interview, import)", "manual")
+  .addHelpText(
+    "after",
+    `
+Types: experience, project, education, award, publication, volunteering, certification, other, skills, about.
+
+Example:
+  resumely profile add --json - <<'EOF'
+  {"type":"experience","title":"…","org":"…","start":"2024-01","end":"present","bullets":["…"]}
+  EOF`,
+  )
+  .action(async (type: string | undefined, o: AddFlags & { json?: string; source: string }) => {
+    const { json, source, ...flags } = o;
+    let raw: unknown;
+    if (json !== undefined) {
+      const text = json === "-" ? await Bun.stdin.text() : readFileSync(json, "utf8");
+      try {
+        raw = JSON.parse(text);
+      } catch {
+        throw new UserError(`invalid proposal: --json is not valid JSON`, "resumely profile add --help");
+      }
+    }
+    if (!["manual", "interview", "import"].includes(source)) throw new UserError(`Unknown --source "${source}"`, "Use manual, interview or import");
+    const input = parseAddInput(type, flags, raw);
+    const r = stageAdd(layout(dataRoot()).profile, load(), input, { kind: source as Proposal["source"]["kind"], ref: source });
+    if (!r.staged.length) return console.log(`nothing new: ${r.skipped.join("; ")}`);
+    for (const p of r.staged) console.log(`proposed ${p.pid} (${p.kind} ${p.entry?.id ?? p.kind})`);
+  });
 
 const progress = (m: string) => console.error(m);
 

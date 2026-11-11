@@ -139,3 +139,44 @@ describe.skipIf(!hasLatex)("apply flow", () => {
     expect((await cli("export", slug, "--to", to)).code).toBe(1);
   }, 120_000);
 });
+
+describe("profile add", () => {
+  async function cliIn(stdin: string, ...args: string[]) {
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), ...args], {
+      env: { ...process.env, RESUMELY_HOME: root },
+      stdin: new Blob([stdin]), stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    return { stdout, stderr, code };
+  }
+  const inbox = () => {
+    const dir = join(layout(root).profile, ".inbox");
+    return readdirSync(dir).filter((n) => n.endsWith(".json")).map((n) => JSON.parse(readFileSync(join(dir, n), "utf8")));
+  };
+
+  test("--json - keeps hostile text byte-for-byte and records the source", async () => {
+    const title = 'Lead "R&D" — C# $HOME `x`';
+    const context = "grew 100%\nsecond line";
+    const r = await cliIn(JSON.stringify({ type: "experience", title, org: "Hostile Co", context }), "profile", "add", "--json", "-", "--source", "interview");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toMatch(/^proposed 1-exp-/);
+    const [p] = inbox();
+    expect(p.entry.title).toBe(title);
+    expect(p.entry.context).toBe(context);
+    expect(p.source.kind).toBe("interview");
+  });
+
+  test("a bad flag is one error line", async () => {
+    const r = await cli("profile", "add", "experience", "--title", "X", "--start", "nope");
+    expect(r.code).toBe(1);
+    const lines = r.stderr.split("\n").filter((l) => l.startsWith("error:"));
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toStartWith("error: invalid proposal: start");
+  });
+
+  test("already-known skills stage nothing", async () => {
+    const r = await cli("profile", "add", "skills", "--category", "Languages", "--skill", "Go");
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("nothing new");
+  });
+});
