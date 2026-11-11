@@ -20,7 +20,9 @@ export type RunCommand = (argv: string[]) => Promise<{ code: number | null; stdo
 const MAX_CHARS = 100_000;
 const URL_HINT = "Save the page as PDF (or copy its text into a .md file) and import that file";
 const LINKEDIN_HINT = "LinkedIn requires login: use More → Save to PDF on your profile and import the PDF";
-const LOGIN_WALL = /sign in|log in|enable javascript/i;
+const LOGIN_WALL = /\b(?:sign|log) in\b|\benable javascript\b/i;
+/** Below this many words, login-wall wording means the page is a wall rather than a page that mentions signing in. */
+const WALL_MAX_WORDS = 150;
 const DOCX_HINT = "Save it as PDF or Markdown and import that";
 
 const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
@@ -57,10 +59,12 @@ async function fromUrl(url: string, fetchImpl?: typeof fetch): Promise<Omit<Impo
   } catch {
     /* fetchPage reports the bad URL */
   }
-  const hint = host === "linkedin.com" || host.endsWith(".linkedin.com") ? LINKEDIN_HINT : URL_HINT;
+  const linkedin = host === "linkedin.com" || host.endsWith(".linkedin.com");
+  const hint = linkedin ? LINKEDIN_HINT : URL_HINT;
   const { html, text } = await fetchPage(url, { fetchImpl, hint });
   const n = wordCount(text);
-  if (n < 30 || LOGIN_WALL.test(text)) throw new UserError(`Couldn't read enough of ${url} (${n} words)`, hint);
+  if ((linkedin || n < WALL_MAX_WORDS) && LOGIN_WALL.test(text)) throw new UserError(`Login wall at ${url}`, hint);
+  if (n < 30) throw new UserError(`Couldn't read enough of ${url} (${n} words)`, hint);
   return { kind: "url", ref: url, text, html };
 }
 

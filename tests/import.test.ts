@@ -169,7 +169,7 @@ describe("importProfile", () => {
       const fetchImpl = (async () => new Response(page, { headers: { "content-type": "text/html" } })) as unknown as typeof fetch;
       const err = await importProfile({ root, source: "https://www.linkedin.com/in/x", fetchImpl }).catch((e) => e);
       expect(err).toBeInstanceOf(UserError);
-      expect(err.message).toMatch(/^Couldn't read enough of https:\/\/www\.linkedin\.com\/in\/x \(\d+ words\)$/);
+      expect(err.message).toBe("Login wall at https://www.linkedin.com/in/x");
       expect(err.hint).toContain("Save to PDF");
     });
   });
@@ -300,6 +300,32 @@ describe("readImportSource", () => {
     const err = await readImportSource("https://jordan.dev/", { fetchImpl }).catch((e) => e);
     expect(err.message).toMatch(/Couldn't read enough of https:\/\/jordan\.dev\/ \(2 words\)/);
     expect(err.hint).toBe("Save the page as PDF (or copy its text into a .md file) and import that file");
+  });
+
+  test("LinkedIn login wall applies at any length", async () => {
+    const page = `<html><body><p>Sign in to LinkedIn. ${Array(400).fill("word").join(" ")}</p></body></html>`;
+    const fetchImpl = (async () => new Response(page)) as unknown as typeof fetch;
+    await expect(readImportSource("https://linkedin.com/in/x", { fetchImpl })).rejects.toThrow("Login wall at https://linkedin.com/in/x");
+  });
+
+  test("a thin non-LinkedIn page with Sign in is a login wall", async () => {
+    const page = `<html><body><p>Sign in to continue. ${Array(40).fill("word").join(" ")}</p></body></html>`;
+    const fetchImpl = (async () => new Response(page)) as unknown as typeof fetch;
+    const err = await readImportSource("https://jordan.dev/", { fetchImpl }).catch((e) => e);
+    expect(err).toBeInstanceOf(UserError);
+    expect(err.message).toBe("Login wall at https://jordan.dev/");
+    expect(err.hint).toBe("Save the page as PDF (or copy its text into a .md file) and import that file");
+  });
+
+  test("a real page mentioning design in / Sign in is not a login wall", async () => {
+    const words = Array(160).fill("engineering").join(" ");
+    const page = `<html><body><header><a href="/login">Sign in</a></header><article><p>Led the API design in 2023. Wrote a blog in Go. ${words}</p></article></body></html>`;
+    const fetchImpl = (async () => new Response(page)) as unknown as typeof fetch;
+    const s = await readImportSource("https://jordan.dev/", { fetchImpl });
+    expect(s.text).toContain("Led the API design in 2023.");
+    const short = `<html><body><p>Led the API design in 2023 and kept a catalog in order. ${Array(40).fill("word").join(" ")}</p></body></html>`;
+    const s2 = await readImportSource("https://jordan.dev/", { fetchImpl: (async () => new Response(short)) as unknown as typeof fetch });
+    expect(s2.text).toContain("design in 2023");
   });
 
   test("a readable page", async () => {
