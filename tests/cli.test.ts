@@ -37,8 +37,11 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 async function cli(...args: string[]) {
+  return cliEnv({}, ...args);
+}
+async function cliEnv(env: Record<string, string>, ...args: string[]) {
   const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), ...args], {
-    env: { ...process.env, RESUMELY_HOME: root, FAKE_HARNESS_SCRIPT: join(root, "script.json") },
+    env: { ...process.env, RESUMELY_HOME: root, FAKE_HARNESS_SCRIPT: join(root, "script.json"), ...env },
     stdin: "ignore", stdout: "pipe", stderr: "pipe",
   });
   const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
@@ -52,6 +55,20 @@ test("--review on a non-TTY exits 1", async () => {
   expect(r.code).toBe(1);
   expect(r.stderr).toContain("--review needs an interactive terminal");
 });
+
+test("resume with no runs exits 1", async () => {
+  const r = await cli("resume");
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain("No failed run to resume");
+});
+
+test.skipIf(!hasLatex)("a failed apply prints how to resume", async () => {
+  const r = await cliEnv({ FAKE_HARNESS_FAIL_STEP: "cover-write" }, "apply", jobFile, "--no-open");
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain("done: resume v1");
+  expect(r.stderr).toContain("failed: cover-letter: ");
+  expect(r.stderr).toMatch(/hint: resume with: resumely resume \d{8}-\d{6}-[a-z0-9]{4} \[--harness <other>\]/);
+}, 60_000);
 
 test("status rejects an unknown status", async () => {
   const r = await cli("status", "x", "bogus");

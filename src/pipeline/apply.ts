@@ -1,24 +1,26 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { createApplication, findDuplicate, latestVersion, saveExtraRaw } from "../application/store";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { createApplication, findApplication, findDuplicate, latestVersion, saveExtraRaw } from "../application/store";
 import type { Application } from "../application/store";
 import { keywordCoverage } from "../checks/keywords";
 import { openFile } from "../commands/open";
-import { loadConfig } from "../config";
+import { loadConfig, type Config } from "../config";
 import { UserError } from "../errors";
-import { resolveAdapter } from "../harness/adapter";
+import { resolveAdapter, resolveFallbacks } from "../harness/adapter";
 import type { JobSource } from "../job/intake";
 import { layout, requireDataRoot } from "../paths";
 import { buildAgentPayload } from "../profile/context";
 import { loadProfile, loadVoiceSamples } from "../profile/load";
-import { builtinTemplatesDir, findTemplate, formatLetterDate } from "../render/render";
+import { onInterrupt } from "../signals";
+import { builtinTemplatesDir, findTemplate, formatLetterDate, type TemplateMeta } from "../render/render";
 import { DEFAULT_BANNED } from "./banned";
+import { pickResumable, RunCheckpoint, type RunOptions } from "./checkpoint";
 import { coverDocument, inferredClaims, profileTextOf, resumeDocument, type Doc, type DocContext } from "./documents";
 import { refine, type DocumentKind, type RefineResult } from "./refine";
-import { runResearch, type ResearchStatus } from "./research";
-import { jsonSchemaFor, type CompanyResearch, type ParsedJob, type ResumeContent, type Review } from "./schemas";
+import { loadCompanyResearch, runResearch, type ResearchStatus } from "./research";
+import { jsonSchemaFor, ResumeContent, type CompanyResearch, type ParsedJob, type Review } from "./schemas";
 import { validateParsedJob } from "./validate";
-import { citedFacts, coverEntryIds, coverTrace, json, notReadyReasons, pdfIn, pickVersion, readJsonOr, resumeEntryIds, resumeTrace, saveVersion, snapshotOf, versionMeta, isReady } from "./version";
+import { citedFacts, coverEntryIds, coverTrace, json, notReadyReasons, pdfIn, pickVersion, readJsonFile, readJsonOr, resumeEntryIds, resumeTrace, saveVersion, snapshotOf, versionMeta, isReady } from "./version";
 import { resolveResume } from "./resolve";
 import { createRunWorkspace, newRunId, runAgentStep } from "./workspace";
 
@@ -28,6 +30,8 @@ export type DocResult = { pdfPath: string; version: number; pages: number; ready
 
 export type ApplyResult = {
   app: Application;
+  /** The checkpointed run (`<root>/.runs/<runId>/`); `resumely resume <runId>` continues it. */
+  runId: string;
   resume?: DocResult;
   cover?: DocResult;
   /** Documents that could not be produced; `hint` names the failing step's workspace when known. */
@@ -71,8 +75,10 @@ function loadParsed(app: Application): ParsedJob | null {
   }
 }
 
+type IntakeOptions = Pick<ApplyOptions, "input" | "into" | "onDuplicate">;
+
 /** Parse the posting and find or create its application, asking `onDuplicate` about an earlier one. */
-async function intake(o: ApplyOptions, appsDir: string, parse: () => Promise<ParsedJob>): Promise<{ app: Application; job: ParsedJob }> {
+async function intake(o: IntakeOptions, appsDir: string, parse: () => Promise<ParsedJob>): Promise<{ app: Application; job: ParsedJob }> {
   const decide = async (existing: Application): Promise<Application | null> => {
     if (!o.onDuplicate) throw new UserError(`Already applied: ${existing.slug}`, `Use --into ${existing.slug} to add a version, or --new for a separate application`);
     const choice = await o.onDuplicate(existing);
@@ -102,8 +108,16 @@ async function intake(o: ApplyOptions, appsDir: string, parse: () => Promise<Par
   return { app: reuse, job: loadParsed(reuse) ?? job };
 }
 
+function requireLatexmk(): void {
+  if (!Bun.which("latexmk", { PATH: process.env.PATH ?? "" })) {
+    throw new UserError("latexmk not found", "Install TeX Live (macOS: brew install --cask mactex-no-gui)");
+  }
+}
+
+const templateDirs = (root: string) => [builtinTemplatesDir(), layout(root).templates];
+
 export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
-  const { root, onProgress } = opts;
+  const { root } = opts;
   requireDataRoot(root);
   const l = layout(root);
   const config = loadConfig(root);
@@ -111,22 +125,108 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
   if (profile.entries.length === 0 || profile.about.name === "Your Name") {
     throw new UserError("Your profile is empty", `Add entries under ${l.profile} (see README) — check with: resumely profile show`);
   }
-  if (!Bun.which("latexmk", { PATH: process.env.PATH ?? "" })) {
-    throw new UserError("latexmk not found", "Install TeX Live (macOS: brew install --cask mactex-no-gui)");
-  }
+  requireLatexmk();
   const harness = opts.harness ?? config.harness;
-  const adapter = resolveAdapter(harness, config);
-  const template = findTemplate(opts.template ?? config.template, [builtinTemplatesDir(), l.templates]);
-  const mode = opts.mode ?? "truthful";
-  const targetPages = opts.pages ?? config.pages;
-  const wantCover = opts.cover !== false;
-  const timeoutMs = config.timeout_minutes * 60_000;
-  const runId = newRunId();
-  const runDir = join(l.runs, runId);
-  const payload = buildAgentPayload(profile);
-  const jobText = opts.input.text;
+  resolveAdapter(harness, config);
+  const template = findTemplate(opts.template ?? config.template, templateDirs(root));
+  const { kind, url, path } = opts.input;
+  const options: RunOptions = {
+    template: template.id,
+    mode: opts.mode ?? "truthful",
+    pages: opts.pages ?? config.pages,
+    cover: opts.cover !== false,
+    research: opts.research !== false,
+    review: opts.review !== false,
+    input: { kind, ...(url ? { url } : {}), ...(path ? { path } : {}) },
+  };
+  const cp = RunCheckpoint.create(l.runs, newRunId(), { harness, options, jobText: opts.input.text, profileDir: l.profile });
+  return runPipeline({ ...opts, cp, config, harness, template });
+}
 
-  const { app, job } = await intake(opts, l.applications, async () => {
+/**
+ * Continue a failed (or abandoned) run from its last finished step: `runId`, or the newest failed run. It reuses the
+ * run's options, job text and profile snapshot; `harness` replaces the run's harness from here on.
+ */
+export async function resumeRun(o: {
+  root: string;
+  runId?: string;
+  harness?: string;
+  open?: boolean;
+  onProgress?: (m: string) => void;
+  onDuplicate?: ApplyOptions["onDuplicate"];
+}): Promise<ApplyResult> {
+  requireDataRoot(o.root);
+  const l = layout(o.root);
+  const config = loadConfig(o.root);
+  const cp = pickResumable(l.runs, o.runId);
+  const { options, run_id: runId } = cp.state;
+  requireLatexmk();
+  const harness = o.harness ?? cp.state.harness;
+  resolveAdapter(harness, config);
+  const template = findTemplate(options.template, templateDirs(o.root));
+  let app: Application | undefined;
+  if (cp.state.app) {
+    const { dir, slug } = cp.state.app;
+    if (!existsSync(dir)) throw new UserError(`Application folder for run ${runId} is gone: ${dir}`, "Move it back, or use resumely mv to rename applications");
+    app = findApplication(l.applications, slug);
+  }
+  cp.setHarness(harness);
+  return runPipeline({
+    root: o.root, input: { ...options.input, text: cp.jobText }, open: o.open, onProgress: o.onProgress, onDuplicate: o.onDuplicate,
+    cp, config, harness, template, app,
+  });
+}
+
+type Pipeline = Omit<ApplyOptions, "harness" | "template" | "mode" | "pages" | "cover" | "research" | "review"> & {
+  cp: RunCheckpoint;
+  config: Config;
+  harness: string;
+  template: TemplateMeta;
+  /** The application an earlier attempt of this run created: intake is skipped. */
+  app?: Application;
+};
+
+/** Run (or continue) a checkpointed run; records its outcome in state.json. */
+async function runPipeline(p: Pipeline): Promise<ApplyResult> {
+  const { cp } = p;
+  cp.start();
+  const unregister = onInterrupt(() => cp.fail(new UserError("interrupted")));
+  try {
+    return await pipeline(p);
+  } catch (e) {
+    if (e instanceof UserError && e.message === "Aborted") {
+      cp.abort();
+      throw e;
+    }
+    cp.fail(e);
+    if (e instanceof UserError) {
+      const resume = `resume with: resumely resume ${cp.state.run_id}`;
+      e.hint = e.hint ? `${e.hint} — ${resume}` : resume;
+    }
+    throw e;
+  } finally {
+    unregister();
+  }
+}
+
+/** A saved document's result, located in the application's current folder. */
+const savedDoc = (app: Application, kind: DocumentKind, d: DocResult): DocResult => ({ ...d, pdfPath: join(app.dir, kind, `v${d.version}`, basename(d.pdfPath)) });
+
+async function pipeline(p: Pipeline): Promise<ApplyResult> {
+  const { cp, config, harness, template, onProgress } = p;
+  const l = layout(p.root);
+  const runId = cp.state.run_id;
+  const opt = cp.state.options;
+  const adapter = resolveAdapter(harness, config);
+  const fallbacks = resolveFallbacks(config, harness);
+  const profile = loadProfile(cp.profileDir);
+  const mode = opt.mode;
+  const targetPages = opt.pages;
+  const timeoutMs = config.timeout_minutes * 60_000;
+  const payload = buildAgentPayload(profile);
+  const jobText = p.input.text;
+
+  const parse = async () => {
     onProgress?.("parsing job…");
     const { value } = await runAgentStep({
       adapter,
@@ -138,67 +238,96 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
       validate: validateParsedJob,
       timeoutMs,
       onProgress,
+      checkpoint: cp,
+      fallbacks,
     });
     return value;
-  });
+  };
+  const { app, job } = p.app ? { app: p.app, job: loadParsed(p.app) ?? (await parse()) } : await intake(p, l.applications, parse);
+  cp.setApp(app);
   const warnings = isEnglish(job.language) ? [] : [`job description language is "${job.language}"; v1 is English-only`];
   const profileText = profileTextOf(payload.entries, Object.values(payload.skills).flat());
 
-  if (opts.pause) {
+  if (p.pause) {
     const likelyGaps = keywordCoverage([...job.requirements, ...job.keywords], "", profileText).absent;
-    if (!(await opts.pause(job, likelyGaps))) throw new UserError("Aborted");
+    if (!(await p.pause(job, likelyGaps))) throw new UserError("Aborted");
   }
 
   // Research only feeds the cover letter, so it runs only when a letter can be written.
   const coverable = template.supports.includes("cover-letter");
   let research: CompanyResearch | null = null;
   let researchStatus: ResearchStatus = "skipped";
-  if (wantCover && coverable && opts.research !== false) {
-    const r = await runResearch({
-      adapter: resolveAdapter(harness, config, { research: true }),
-      name: harness, runsDir: l.runs, runId, appDir: app.dir, job, url: app.meta.source.url, timeoutMs, onProgress,
-    });
-    ({ research, status: researchStatus } = r);
-    if (r.warning) warnings.push(r.warning);
+  if (cp.state.research) {
+    researchStatus = cp.state.research.status;
+    if (researchStatus === "used") research = loadCompanyResearch(app.dir);
+    if (cp.state.research.warning) warnings.push(cp.state.research.warning);
+  } else {
+    let warning: string | undefined;
+    if (opt.cover && coverable && opt.research) {
+      const r = await runResearch({
+        adapter: resolveAdapter(harness, config, { research: true }),
+        name: harness, runsDir: l.runs, runId, appDir: app.dir, job, url: app.meta.source.url, timeoutMs, onProgress,
+      });
+      ({ research, status: researchStatus, warning } = r);
+      if (warning) warnings.push(warning);
+    }
+    cp.setResearch(warning ? { status: researchStatus, warning } : { status: researchStatus });
   }
 
   const letterDate = formatLetterDate(new Date());
   const tag = (t: string) => (m: string) => onProgress?.(`[${t}] ${m}`);
   const ctx = (t: string): DocContext => ({
     adapter, name: harness, timeoutMs, profile, payload, job, jobText, template, mode, profileText,
-    appJob: { company: app.meta.company, role: app.meta.role }, onProgress: tag(t),
+    appJob: { company: app.meta.company, role: app.meta.role }, onProgress: tag(t), checkpoint: cp, fallbacks,
   });
   const loop = <T>(kind: DocumentKind, doc: Doc<T>) =>
     refine<T>({
       kind, runsDir: l.runs, runId, adapter, name: harness, timeoutMs, ...doc,
-      maxRounds: opts.review === false ? 0 : config.max_review_rounds,
-      reviewFiles: { "job.md": jobText }, onProgress: tag(TAG[kind]),
+      maxRounds: opt.review ? config.max_review_rounds : 0,
+      reviewFiles: { "job.md": jobText }, onProgress: tag(TAG[kind]), checkpoint: cp, fallbacks,
     });
   const coverLoop = async () => {
     if (!coverable) throw new UserError(`template ${template.id} has no cover-letter design`);
     const banned = [...new Set([...DEFAULT_BANNED, ...config.banned_phrases])];
-    const doc = await coverDocument(ctx("cover"), { research, banned, voice: loadVoiceSamples(l.profile), date: letterDate });
+    const doc = await coverDocument(ctx("cover"), { research, banned, voice: loadVoiceSamples(cp.profileDir), date: letterDate });
     return loop("cover-letter", doc);
   };
+  // Documents an earlier attempt of this run saved are kept as they are.
+  const earlier = cp.state.documents;
   const [rs, cs] = await Promise.allSettled([
-    resumeDocument(ctx("resume"), { targetPages }).then((d) => loop("resume", d)),
-    wantCover ? coverLoop() : Promise.resolve(null),
+    earlier.resume ? Promise.resolve(null) : resumeDocument(ctx("resume"), { targetPages }).then((d) => loop("resume", d)),
+    opt.cover && !earlier["cover-letter"] ? coverLoop() : Promise.resolve(null),
   ]);
 
-  const result: ApplyResult = { app, failures: [], gaps: [], inferred: [], warnings };
+  const result: ApplyResult = { app, runId, failures: [], gaps: [], inferred: [], warnings };
   let atsHint: string | undefined;
   const save = <T>(kind: DocumentKind, r: RefineResult<T>, files: Record<string, string>, extra?: Record<string, unknown>): DocResult => {
     const facts = r.produced.facts;
     const saved = saveVersion({
       app, kind, about: profile.about, pdf: r.produced.pdf, filename: config.filename,
       files: { ...files, ...(r.review ? { "review.json": json(r.review) } : {}), "checks.json": json({ ...facts, warnings: r.warnings }) },
-      meta: versionMeta({ mode, research: researchStatus, harness, run: runDir, template: template.id, facts, review: r.review, reviewedFinal: r.reviewedFinal, rounds: r.rounds, extra }),
+      meta: versionMeta({ mode, research: researchStatus, harness, run: cp.dir, template: template.id, facts, review: r.review, reviewedFinal: r.reviewedFinal, rounds: r.rounds, extra }),
     });
     warnings.push(...[...r.warnings, ...notReadyReasons(facts).map((w) => `not ready: ${w}`)].map((w) => `[${TAG[kind]}] ${w}`));
     if (facts.ats.status === "skipped" && facts.ats.hint) atsHint = facts.ats.hint;
-    return { pdfPath: saved.pdfPath, version: saved.version, pages: r.produced.pages, ready: isReady(facts), review: r.review };
+    const d = { pdfPath: saved.pdfPath, version: saved.version, pages: r.produced.pages, ready: isReady(facts), review: r.review };
+    cp.setDocument(kind, d);
+    return d;
   };
-  if (rs.status === "fulfilled") {
+  if (earlier.resume) {
+    result.resume = savedDoc(app, "resume", earlier.resume);
+    const content = (() => {
+      try {
+        return readJsonFile(join(app.dir, "resume", `v${earlier.resume.version}`, "resume.json"), ResumeContent);
+      } catch {
+        return null;
+      }
+    })();
+    if (content) {
+      result.gaps = content.gaps;
+      result.inferred = inferredClaims(content, profile);
+    }
+  } else if (rs.status === "fulfilled" && rs.value) {
     const r = rs.value;
     result.resume = save("resume", r, {
       "resume.json": json(r.value),
@@ -209,7 +338,9 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
     result.gaps = r.value.gaps;
     result.inferred = inferredClaims(r.value, profile);
   }
-  if (cs.status === "fulfilled" && cs.value) {
+  if (earlier["cover-letter"]) {
+    result.cover = savedDoc(app, "cover-letter", earlier["cover-letter"]);
+  } else if (cs.status === "fulfilled" && cs.value) {
     const r = cs.value;
     result.cover = save("cover-letter", r, {
       "cover-letter.json": json(r.value),
@@ -224,15 +355,19 @@ export async function applyJob(opts: ApplyOptions): Promise<ApplyResult> {
   const rejected = ([["resume", rs], ["cover-letter", cs]] as const).flatMap(([kind, s]) => (s.status === "rejected" ? [{ kind, error: s.reason as unknown }] : []));
   const bug = rejected.find((f) => !(f.error instanceof UserError));
   if (bug) throw bug.error;
-  if (!result.resume && !result.cover) throw rejected[0]!.error;
+  if (!result.resume && !result.cover && rejected.length) throw rejected[0]!.error;
   for (const { kind, error } of rejected) {
     const e = error as UserError;
     result.failures.push(e.hint ? { kind, message: e.message, hint: e.hint } : { kind, message: e.message });
   }
+  if (rejected.length) cp.fail(rejected[0]!.error);
+  else cp.finish();
+  for (const [step, s] of Object.entries(cp.state.steps)) if (s.fallback) warnings.push(`${step} ran on fallback harness ${s.harness}`);
   const toOpen = pdfToOpen(result);
-  if (opts.open !== false && toOpen) await openFile(toOpen);
+  if (p.open !== false && toOpen) await openFile(toOpen);
   return result;
 }
+
 
 /** The PDF `apply` opens: the resume, or the cover letter when only it was produced. */
 export const pdfToOpen = (r: ApplyResult): string | undefined => r.resume?.pdfPath ?? r.cover?.pdfPath;

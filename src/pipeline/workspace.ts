@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { AdapterConfig } from "../config";
 import { HarnessError, runHarness } from "../harness/adapter";
 import type { HarnessErrorKind } from "../harness/adapter";
@@ -24,6 +24,13 @@ const RETRY_SUFFIX = "\n\nYour previous attempt was rejected. Read errors.md and
 
 export type Fallback = { name: string; adapter: AdapterConfig };
 
+/** Finished agent steps of a run, keyed by step name (the workspace's basename). */
+export interface StepCache {
+  get(step: string): { harness: string } | null;
+  /** `fallback`: a configured fallback harness (not the step's own) produced the output. */
+  done(step: string, rec: { harness: string; outFile: string; fallback: boolean }): void;
+}
+
 /** Failure kinds where another harness might succeed. `invalid_output` and `unknown` never fall back. */
 const FALLBACK_KINDS: HarnessErrorKind[] = ["not_installed", "auth", "rate_limit", "timeout"];
 
@@ -33,6 +40,18 @@ const inlinePrompt = (instructions: string, files: Record<string, string>, outFi
     .map(([name, content]) => `\n\n## ${name}\n\n\`\`\`\n${content.replace(/\n$/, "")}\n\`\`\``)
     .join("") +
   `\n\nWrite out/${outFile} with your file-writing tool. You do not need to read any files.`;
+
+/** Read, parse and validate an agent's output file. */
+function readOutput<T>(outPath: string, outFile: string, validate: (raw: unknown) => ValidationResult<T>): ValidationResult<T> {
+  if (!existsSync(outPath)) return { ok: false, errors: [`out/${outFile} was not written`] };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(outPath, "utf8"));
+  } catch (e) {
+    return { ok: false, errors: [`out/${outFile} is not valid JSON: ${(e as Error).message}`] };
+  }
+  return validate(raw);
+}
 
 export async function runAgentStep<T>(opts: {
   adapter: AdapterConfig;
@@ -49,14 +68,25 @@ export async function runAgentStep<T>(opts: {
   fallbacks?: Fallback[];
   /** "inline" puts the instructions and files in the prompt itself (for agents that cannot read files). */
   promptMode?: "file" | "inline";
+  /** A step recorded here whose out file still parses and validates is reused without spawning the agent. */
+  checkpoint?: StepCache;
 }): Promise<{ value: T; warnings: string[]; harness: string }> {
   const { workspace } = opts;
+  const step = basename(workspace);
+  const outPath = join(workspace, "out", opts.outFile);
+  const cached = opts.checkpoint?.get(step);
+  if (cached) {
+    const r = readOutput(outPath, opts.outFile, opts.validate);
+    if (r.ok) {
+      opts.onProgress?.(`${step}: reused from checkpoint`);
+      return { value: r.value, warnings: r.warnings, harness: cached.harness };
+    }
+  }
   const maxRetries = opts.maxRetries ?? 2;
   const inline = opts.promptMode === "inline";
   mkdirSync(join(workspace, "out"), { recursive: true });
   writeFileSync(join(workspace, "instructions.md"), opts.instructions);
   for (const [name, content] of Object.entries(opts.files)) writeFileSync(join(workspace, name), content);
-  const outPath = join(workspace, "out", opts.outFile);
   const errorsPath = join(workspace, "errors.md");
   const basePrompt = inline ? inlinePrompt(opts.instructions, opts.files, opts.outFile) : BASE_PROMPT;
   const candidates: Fallback[] = [{ name: opts.name, adapter: opts.adapter }, ...(opts.fallbacks ?? [])];
@@ -81,25 +111,12 @@ export async function runAgentStep<T>(opts: {
         throw new HarnessError(e.message, `${e.hint ? `${e.hint} ` : ""}(logs: ${workspace})`, e.kind);
       }
 
-      let errors: string[];
-      if (!existsSync(outPath)) {
-        errors = [`out/${opts.outFile} was not written`];
-      } else {
-        let raw: unknown;
-        let parseError: string | undefined;
-        try {
-          raw = JSON.parse(readFileSync(outPath, "utf8"));
-        } catch (e) {
-          parseError = `out/${opts.outFile} is not valid JSON: ${(e as Error).message}`;
-        }
-        if (parseError) {
-          errors = [parseError];
-        } else {
-          const r = opts.validate(raw);
-          if (r.ok) return { value: r.value, warnings: r.warnings, harness: cand.name };
-          errors = r.errors;
-        }
+      const r = readOutput(outPath, opts.outFile, opts.validate);
+      if (r.ok) {
+        opts.checkpoint?.done(step, { harness: cand.name, outFile: opts.outFile, fallback: cand.name !== opts.name });
+        return { value: r.value, warnings: r.warnings, harness: cand.name };
       }
+      const errors = r.errors;
       const list = errors.map((e) => `- ${e}`).join("\n");
       writeFileSync(errorsPath, list + "\n");
       if (attempt < maxRetries) {

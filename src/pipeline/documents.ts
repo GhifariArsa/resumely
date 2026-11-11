@@ -15,7 +15,7 @@ import { resolveResume, type EntryLike } from "./resolve";
 import { jsonSchemaFor, type CompanyResearch, type CoverLetterContent, type ParsedJob, type ResumeContent } from "./schemas";
 import { normaliseSkill, validateCoverLetter, validateResume } from "./validate";
 import { json } from "./version";
-import { runAgentStep } from "./workspace";
+import { runAgentStep, type Fallback, type StepCache } from "./workspace";
 
 type Mode = "truthful" | "stretch";
 type JobRef = { company: string; role: string };
@@ -108,6 +108,9 @@ export type DocContext = {
   mode: Mode;
   profileText: string;
   onProgress?: (m: string) => void;
+  /** Passed to the writer step (first write and revisions). */
+  checkpoint?: StepCache;
+  fallbacks?: Fallback[];
 };
 
 export type Doc<T> = {
@@ -165,6 +168,8 @@ export async function resumeDocument(ctx: DocContext, o: { targetPages: number }
         validate: (raw) => validateResume(raw, ctx.profile, ctx.mode),
         timeoutMs: ctx.timeoutMs,
         onProgress: ctx.onProgress,
+        checkpoint: ctx.checkpoint,
+        fallbacks: ctx.fallbacks,
       });
     },
     (content, fabricationWarnings) => {
@@ -205,6 +210,8 @@ export async function coverDocument(
           validateCoverLetter(raw, { profile: ctx.profile, research: o.research, banned: o.banned, mode: ctx.mode, jobText: ctx.jobText, job: ctx.job }),
         timeoutMs: ctx.timeoutMs,
         onProgress: ctx.onProgress,
+        checkpoint: ctx.checkpoint,
+        fallbacks: ctx.fallbacks,
       });
     },
     (letter, fabricationWarnings) => {

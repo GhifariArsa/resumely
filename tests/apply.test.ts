@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
 import { layout } from "../src/paths";
 import { applyJob, renderApplication, formatApplicationList, pdfToOpen, type ApplyResult } from "../src/pipeline/apply";
@@ -101,6 +101,8 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     const progress: string[] = [];
     const r = await run({ onProgress: (m) => progress.push(m) });
     expect(r.failures).toEqual([]);
+    expect(r.runId).toMatch(/^\d{8}-\d{6}-[a-z0-9]{4}$/);
+    expect(basename(runDir())).toBe(r.runId);
     expect([...calls()].sort()).toEqual(["cover-review-1", "cover-write", "parse", "research", "resume-review-1", "resume-write"]);
     expect(calls().slice(0, 2)).toEqual(["parse", "research"]);
 
@@ -219,7 +221,7 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     const e = (await run().catch((x) => x)) as UserError;
     expect(e).toBeInstanceOf(UserError);
     expect(e.message).toBe(`Already applied: ${first.app.slug}`);
-    expect(e.hint).toBe(`Use --into ${first.app.slug} to add a version, or --new for a separate application`);
+    expect(e.hint).toStartWith(`Use --into ${first.app.slug} to add a version, or --new for a separate application — resume with: resumely resume `);
     expect(listApplications(layout(root).applications).length).toBe(1);
 
     script(full());
@@ -394,7 +396,7 @@ describe.skipIf(!hasLatex)("applyJob (resume, P1 behaviours)", () => {
     expect(e).toBeInstanceOf(HarnessError);
     expect(e.kind).toBe("unknown");
     const ws = join(runDir(), "resume-write");
-    expect(e.hint).toBe(`model overloaded, giving up (logs: ${ws})`);
+    expect(e.hint).toBe(`model overloaded, giving up (logs: ${ws}) — resume with: resumely resume ${basename(runDir())}`);
     expect(readFileSync(join(ws, "stderr.log"), "utf8")).toContain("model overloaded");
   });
 
@@ -402,7 +404,7 @@ describe.skipIf(!hasLatex)("applyJob (resume, P1 behaviours)", () => {
     script(full({ "resume-write": [{ $stderr: "model overloaded, giving up", $exit: 1 }], "cover-write": [{ $exit: 1 }] }));
     const e = (await run().catch((x) => x)) as HarnessError;
     expect(e).toBeInstanceOf(HarnessError);
-    expect(e.hint).toBe(`model overloaded, giving up (logs: ${join(runDir(), "resume-write")})`);
+    expect(e.hint).toBe(`model overloaded, giving up (logs: ${join(runDir(), "resume-write")}) — resume with: resumely resume ${basename(runDir())}`);
   });
 
   test("render into a new version with another template", async () => {
@@ -482,8 +484,8 @@ describe.skipIf(!hasLatex)("applyJob (resume, P1 behaviours)", () => {
     const e = (await run({ template: "broken" }).catch((x) => x)) as UserError;
     expect(e).toBeInstanceOf(UserError);
     expect(e.message).toBe("LaTeX compile failed");
-    expect(e.hint).toMatch(/^! Undefined control sequence\. — content saved at .*\/\.runs\/[^/]+\/resume-write\/out\/resume\.json$/);
-    expect(existsSync(e.hint!.split("content saved at ")[1]!)).toBe(true);
+    expect(e.hint).toMatch(/^! Undefined control sequence\. — content saved at .*\/\.runs\/[^/]+\/resume-write\/out\/resume\.json — resume with: resumely resume [\w-]+$/);
+    expect(existsSync(e.hint!.split("content saved at ")[1]!.split(" — ")[0]!)).toBe(true);
   });
 });
 
@@ -546,7 +548,7 @@ test("ls with no applications", () => {
 
 test("pdfToOpen: the resume, else the cover letter when only it succeeded", () => {
   const doc = (p: string) => ({ pdfPath: p, version: 1, pages: 1, ready: true, review: null });
-  const base = { app: {} as ApplyResult["app"], failures: [], gaps: [], inferred: [], warnings: [] };
+  const base = { app: {} as ApplyResult["app"], runId: "r", failures: [], gaps: [], inferred: [], warnings: [] };
   expect(pdfToOpen({ ...base, resume: doc("/r.pdf"), cover: doc("/c.pdf") })).toBe("/r.pdf");
   expect(pdfToOpen({ ...base, cover: doc("/c.pdf") })).toBe("/c.pdf");
   expect(pdfToOpen(base)).toBeUndefined();

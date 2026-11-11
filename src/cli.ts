@@ -16,7 +16,7 @@ import { exportApplication, setStatus } from "./application/tracking";
 import { confirmParsed, isInteractive, promptDuplicate } from "./commands/prompt";
 import { savedNotReadyReasons } from "./pipeline/version";
 import { formatTemplateList, listTemplates, newTemplate } from "./render/templates";
-import { applyJob, type DocResult, formatApplicationList, renderApplication, resolveOpenTarget } from "./pipeline/apply";
+import { applyJob, type ApplyResult, type DocResult, formatApplicationList, renderApplication, resolveOpenTarget, resumeRun } from "./pipeline/apply";
 
 const program = new Command();
 program.name("resumely").description("Agent-driven resume tailoring");
@@ -80,6 +80,18 @@ function doneLine(label: string, kind: "resume" | "cover-letter", appDir: string
   return `${base} (not ready: ${savedNotReadyReasons(join(appDir, kind, `v${d.version}`))})`;
 }
 
+/** Print an apply/resume result; exit 1 when a document failed or is not ready. */
+function report(r: ApplyResult) {
+  if (r.resume) console.error(doneLine("resume", "resume", r.app.dir, r.resume));
+  if (r.cover) console.error(doneLine("cover letter", "cover-letter", r.app.dir, r.cover));
+  for (const f of r.failures) console.error(`failed: ${f.kind}: ${f.message}${f.hint ? ` (${f.hint})` : ""}`);
+  if (r.inferred.length) console.error(["inferred claims to review:", ...r.inferred.map((c) => `  - ${c.text} [${c.entry_ids.join(", ")}]`)].join("\n"));
+  if (r.gaps.length) console.error(["gaps:", ...r.gaps.map((g) => `  - ${g.requirement}: ${g.note}`)].join("\n"));
+  printWarnings(r.warnings);
+  if (r.failures.length) console.error(`hint: resume with: resumely resume ${r.runId} [--harness <other>]`);
+  if (r.failures.length || r.resume?.ready === false || r.cover?.ready === false) process.exitCode = 1;
+}
+
 program
   .command("apply [input]")
   .description("Tailor a resume to a job (URL, file, or --clip)")
@@ -114,13 +126,20 @@ program
       into,
       onDuplicate: o.new ? async () => "new" : interactive ? promptDuplicate : undefined,
     });
-    if (r.resume) console.error(doneLine("resume", "resume", r.app.dir, r.resume));
-    if (r.cover) console.error(doneLine("cover letter", "cover-letter", r.app.dir, r.cover));
-    for (const f of r.failures) console.error(`failed: ${f.kind}: ${f.message}${f.hint ? ` (${f.hint})` : ""}`);
-    if (r.inferred.length) console.error(["inferred claims to review:", ...r.inferred.map((c) => `  - ${c.text} [${c.entry_ids.join(", ")}]`)].join("\n"));
-    if (r.gaps.length) console.error(["gaps:", ...r.gaps.map((g) => `  - ${g.requirement}: ${g.note}`)].join("\n"));
-    printWarnings(r.warnings);
-    if (r.failures.length || r.resume?.ready === false || r.cover?.ready === false) process.exitCode = 1;
+    report(r);
+  });
+
+program
+  .command("resume [run-id]")
+  .description("Continue a failed run from its last finished step (default: the most recent failed run)")
+  .option("--harness <name>", "agent harness to use from here on")
+  .option("--no-open", "don't open the PDF when done")
+  .action(async (runId: string | undefined, o: { harness?: string; open: boolean }) => {
+    const r = await resumeRun({
+      root: dataRoot(), runId, harness: o.harness, open: o.open, onProgress: progress,
+      onDuplicate: isInteractive() ? promptDuplicate : undefined,
+    });
+    report(r);
   });
 
 program
