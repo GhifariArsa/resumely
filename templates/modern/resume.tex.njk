@@ -1,0 +1,41 @@
+%-------------------------
+% Resume (resumely modern): Awesome-CV inspired design, see LICENSE
+%-------------------------
+
+((* include "preamble.tex.njk" *))
+
+\hypersetup{pdfauthor={(((about.name)))}, pdftitle={(((about.name))) — Resume}((* if job *)), pdfsubject={(((job.role))) at (((job.company)))}((* endif *))}
+
+\begin{document}
+
+((* include "header.tex.njk" *))
+((* if resume.summary *))
+
+\vspace{0.2em}
+\begin{center}\small\color{muted} (((resume.summary.text)))\end{center}
+((* endif *))
+((* for s in resume.sections *))
+
+\cvsection{(((s.title)))}
+((* for it in s.items *))
+\cventry{(((it.heading)))}{(((it.subheading)))}{(((it.location)))}{(((it.dates)))}
+((* if it.bullets.length *))
+\cvbullets{
+((* for b in it.bullets *))
+  \cvitem{(((b.text)))}
+((* endfor *))
+}
+((* endif *))
+((* endfor *))
+((* endfor *))
+((* if resume.skills.length *))
+
+\cvsection{Technical Skills}
+\vspace{0.2em}
+((* for k in resume.skills *))
+\noindent{\small\bfseries (((k.category)))\ }{\small\color{muted}((( k.items | join(", ") )))}\par
+((* endfor *))
+((* endif *))
+
+\par\message{RESUMELY-FILL \the\pagetotal\space\the\textheight}
+\end{document}

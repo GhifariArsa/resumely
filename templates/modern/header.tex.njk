@@ -1,0 +1,13 @@
+((* set parts = about.name.split(" ") *))
+\begin{center}
+  {\fontsize{30}{34}\selectfont {\cvlight\color{muted}(((parts[0])))}((* if parts.length > 1 *)) {\bfseries ((( parts.slice(1).join(" ") )))}((* endif *))}\par
+((* if about.headline *))
+  \vspace{0.3em}{\color{accent}\scshape\large (((about.headline)))}\par
+((* endif *))
+  \vspace{0.35em}{\footnotesize\color{muted}%
+((* set sep = "" *))((* if about.phone *))\cvicon{\faPhone*}\ (((about.phone)))((* set sep = " | " *))((* endif *))
+((* if about.email *))(((sep)))\cvicon{\faEnvelope}\ \href{mailto:((( raw.about.email | latexUrl )))}{(((about.email)))}((* set sep = " | " *))((* endif *))
+((* if about.location *))(((sep)))\cvicon{\faMapMarker*}\ (((about.location)))((* set sep = " | " *))((* endif *))
+((* for l in about.links *))(((sep)))((* set lab = l.label | lower *))((* if "github" in lab *))\cvicon{\faGithub}((* elif "linkedin" in lab *))\cvicon{\faLinkedin}((* else *))\cvicon{\faLink}((* endif *))\ \href{((( raw.about.links[loop.index0].url | latexUrl )))}{((( l.url | replace("https://", "") | replace("http://", "") )))}((* set sep = " | " *))
+((* endfor *))}\par
+\end{center}

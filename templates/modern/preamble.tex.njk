@@ -1,0 +1,55 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{fontspec}
+\usepackage{amssymb}
+\usepackage{accsupp}
+\usepackage[usenames,dvipsnames]{xcolor}
+\usepackage[margin=0.7in,top=0.55in,bottom=0.55in]{geometry}
+\usepackage{enumitem}
+\usepackage{fontawesome5}
+\usepackage[hidelinks]{hyperref}
+
+% Fonts are loaded from TeX Live by file name so the template works on any OS
+\setmainfont{SourceSansPro}[
+  Extension=.otf,
+  UprightFont=*-Regular,
+  BoldFont=*-Bold,
+  ItalicFont=*-RegularIt,
+  BoldItalicFont=*-BoldIt,
+  SmallCapsFeatures={Letters=SmallCaps}
+]
+\newfontfamily\cvlight{SourceSansPro-Light.otf}[Path=,SmallCapsFeatures={Letters=SmallCaps}]
+
+\definecolor{accent}{HTML}{DC3522}
+\definecolor{text}{HTML}{333333}
+\definecolor{muted}{HTML}{5D5D5D}
+\color{text}
+
+% Machine-readable text. The math-font check mark would extract as "X", so tag it with its real character.
+\let\resumelyCheckmark\checkmark
+\renewcommand{\checkmark}{\BeginAccSupp{method=hex,unicode,ActualText={2713}}\resumelyCheckmark\EndAccSupp{}}
+\pdfvariable gentounicode=1
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\raggedright
+\raggedbottom
+\urlstyle{same}
+\setlist[itemize]{leftmargin=1.2em,itemsep=1pt,topsep=2pt,parsep=0pt,label={\color{muted}\textbullet}}
+
+% Section heading: accent title followed by a rule to the end of the line
+\newcommand{\cvsection}[1]{%
+  \par\vspace{0.7em}\noindent
+  \hbox to \linewidth{\color{accent}\Large\bfseries #1\hspace{0.5em}\leaders\hbox{\raisebox{0.45ex}{\rule{1pt}{0.6pt}}}\hfill\null}%
+  \par\vspace{0.1em}}
+
+% Entry: heading + location, subheading + dates
+\newcommand{\cventry}[4]{%
+  \par\vspace{0.45em}\noindent
+  {\bfseries #1}\hfill{\color{accent}\itshape\small #3}\par
+  \noindent{\scshape #2}\hfill{\color{muted}\itshape\small #4}\par\vspace{0.1em}}
+\newcommand{\cvbullets}[1]{\begin{itemize}#1\end{itemize}}
+\newcommand{\cvitem}[1]{\item {\small\color{muted} #1}}
+
+% Contact-line icons are decoration: hide their glyph names from text extraction
+\newcommand{\cvicon}[1]{\BeginAccSupp{ActualText={}}#1\EndAccSupp{}}
