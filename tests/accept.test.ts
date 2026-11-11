@@ -84,6 +84,19 @@ describe("acceptProposal", () => {
     expect(profile.entries.find((e) => e.id === "exp-atlas-labs")!.body).toContain("Brand new bullet");
     expect(JSON.stringify(buildAgentPayload(profile))).not.toContain("Compensation");
   });
+  test("update keeps unknown frontmatter keys and comments", () => {
+    const f = join(pdir, "experience", "atlas-labs.md");
+    const live = readFileSync(f, "utf8");
+    writeFileSync(f, live.replace("org: Atlas Labs\n", "org: Atlas Labs\n# keep me\nvisibility: internal\n").replace("tags: [backend, frontend]\n", ""));
+    const p = mk("update", "exp-atlas-labs", { title: "Staff Engineer", org: "Atlas Labs", start: "2023-03", end: "present", skills: ["TypeScript"], bullets: ["Fresh"] }, "exp-atlas-labs");
+    acceptProposal(pdir, p);
+    const text = readFileSync(f, "utf8");
+    expect(text).toContain("# keep me");
+    expect(text).toContain("visibility: internal");
+    expect(text).toContain("title: Staff Engineer");
+    expect(text).toContain("Compensation: 145000 CAD plus equity.");
+    expect(loadProfile(pdir).entries.find((e) => e.id === "exp-atlas-labs")!.title).toBe("Staff Engineer");
+  });
   test("duplicate needs --as", () => {
     const p = mk("duplicate", "exp-atlas-labs", { title: "Senior Software Engineer", org: "Atlas Labs", bullets: ["x"] }, "exp-atlas-labs");
     try {

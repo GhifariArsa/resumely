@@ -93,7 +93,17 @@ function liveFile(profileDir: string, p: Proposal): { entry: Entry; text: string
 function updatedText(profileDir: string, p: Proposal): { file: string; before: string; after: string } {
   const { entry, text } = liveFile(profileDir, p);
   const priv = privateSections(text);
-  const after = entryMarkdown(p.entry!) + (priv ? "\n" + priv : "");
+  const e = p.entry!;
+  const m = text.match(FM_RE);
+  if (!m) throw new UserError(`${entry.file}: missing YAML frontmatter`, "Start the file with a --- block");
+  // Edit the live frontmatter in place so unknown keys and comments survive.
+  const doc = parseDocument(m[1]!);
+  for (const k of FM_KEYS) {
+    if (e[k] === undefined) doc.delete(k);
+    else doc.set(k, e[k]);
+  }
+  const body = renderBody(e);
+  const after = `---\n${String(doc).trimEnd()}\n---\n` + (body ? `\n${body}\n` : "") + (priv ? "\n" + priv : "");
   return { file: entry.file, before: text, after };
 }
 
