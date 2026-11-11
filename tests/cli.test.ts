@@ -402,6 +402,25 @@ describe("integration A: profile add --update keeps live data", () => {
   });
 });
 
+describe("profile add --update without --title", () => {
+  test("stages a bullet-only update that keeps the live title once accepted", async () => {
+    const a = await cli("profile", "add", "experience", "--update", "exp-atlas-labs", "--bullet", "Interview bullet");
+    expect(a.stderr).toBe("");
+    expect(a.code).toBe(0);
+    expect(a.stdout).toContain("proposed 1-exp-atlas-labs (update exp-atlas-labs)");
+    expect((await cli("profile", "review", "--accept", "1")).code).toBe(0);
+    const text = readFileSync(join(layout(root).profile, "experience", "atlas-labs.md"), "utf8");
+    expect(text).toContain("title: Senior Software Engineer");
+    expect(text).toContain("- Interview bullet");
+  });
+
+  test("a new entry still needs --title", async () => {
+    const r = await cli("profile", "add", "experience", "--org", "Acme", "--bullet", "x");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("title");
+  });
+});
+
 describe.skipIf(Bun.which("expect") === null)("profile review editor keeps stdin", () => {
   test("the editor receives keystrokes typed after it opens, and review continues", async () => {
     const add = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {

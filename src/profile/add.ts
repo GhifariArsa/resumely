@@ -30,7 +30,12 @@ export type AddFlags = {
 };
 
 const Extra = { rationale: z.string().optional() };
-const EntryInput = DraftEntry.extend({ update: z.string().optional(), ...Extra }).strict();
+// An update may leave out the title: accepting it keeps the live one (only the keys a proposal sets change).
+const EntryInput = DraftEntry.extend({ title: DraftEntry.shape.title.optional(), update: z.string().optional(), ...Extra })
+  .strict()
+  .superRefine((e, ctx) => {
+    if (e.title === undefined && !e.update) ctx.addIssue({ code: "custom", path: ["title"], message: "required for a new entry (--title)" });
+  });
 const SkillsInput = z.object({ type: z.literal("skills"), skills: z.record(z.string(), z.array(z.string())), ...Extra }).strict();
 const AboutInput = z.object({ type: z.literal("about"), about: AboutChange.strict(), ...Extra }).strict();
 
@@ -111,8 +116,10 @@ export function stageAdd(
   if (input.type === "about") return stageDrafts(profileDir, profile, [], { about: input.about }, source, now);
 
   const { update, rationale, ...rest } = input;
-  const entry = DraftEntry.parse(rest);
-  if (update && !profile.entries.some((e) => e.id === update)) throw new UserError(`No entry "${update}" to update`, "resumely profile show");
+  const live = update ? profile.entries.find((e) => e.id === update) : undefined;
+  if (update && !live) throw new UserError(`No entry "${update}" to update`, "resumely profile show");
+  // Without --title an update carries the live title, which accepting leaves unchanged.
+  const entry = DraftEntry.parse({ ...rest, title: rest.title ?? live?.title });
   for (const d of dateIssues(entry, now)) if (d.severity === "error") errors.push(`${d.message}`);
   charErrors("title", entry.title, errors);
   if (entry.org) charErrors("org", entry.org, errors);

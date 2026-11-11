@@ -73,7 +73,7 @@ resumely profile add --json - <<'EOF'
 EOF
 ```
 
-`profile add` stages a proposal too (types: experience, project, education, award, publication, volunteering, certification, other, skills, about). Use `--update <id>` to propose a change to an existing entry. It is also the command the interview agent calls.
+`profile add` stages a proposal too (types: experience, project, education, award, publication, volunteering, certification, other, skills, about). Use `--update <id>` to propose a change to an existing entry: only the fields you pass change, so `--title` is optional there (e.g. `resumely profile add experience --update exp-acme --bullet "…"`). It is also the command the interview agent calls.
 
 ### Interview
 

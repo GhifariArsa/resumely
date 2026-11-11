@@ -67,6 +67,15 @@ describe("stageAdd", () => {
     expect(e.message).toContain('No entry "exp-ghost" to update');
     expect(e.hint).toBe("resumely profile show");
   });
+  test("an update may omit the title; the staged entry carries the live one", () => {
+    const profile = loadProfile(pdir);
+    const input = parseAddInput("experience", flags({ update: "exp-atlas-labs", bullet: ["Interview bullet"] }), undefined);
+    const r = stageAdd(pdir, profile, input, manual);
+    expect(r.staged[0]!.entry).toMatchObject({ id: "exp-atlas-labs", title: "Senior Software Engineer", bullets: ["Interview bullet"] });
+  });
+  test("a new entry still needs a title", () => {
+    expect(err(() => parseAddInput("experience", flags({ org: "Acme" }), undefined)).message).toContain("title: required for a new entry");
+  });
   test("a new entry is staged with the manual source", () => {
     const profile = loadProfile(pdir);
     const input = parseAddInput("experience", flags({ title: "Staff Engineer", org: "Acme", start: "2024-01", end: "present" }), undefined);
