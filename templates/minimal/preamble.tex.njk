@@ -13,6 +13,9 @@
 \let\resumelyCheckmark\checkmark
 \renewcommand{\checkmark}{\BeginAccSupp{method=hex,unicode,ActualText={2713}}\resumelyCheckmark\EndAccSupp{}}
 
+% Non-social links share the socials collection; give them the homepage icon
+\newcommand*{\homepagesocialsymbol}{\homepagesymbol}
+
 % Contact-line icons are decoration: hide their glyph names from text extraction
 \newcommand{\resumelyHideIcon}[1]{%
   \let\resumelyTmp=#1%

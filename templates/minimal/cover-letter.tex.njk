@@ -7,6 +7,10 @@
 
 \AtBeginDocument{\hypersetup{pdfauthor={(((about.name)))}, pdftitle={(((about.name))) — Cover Letter}, pdfsubject={(((job.role))) at (((job.company)))}}}
 
+((* if about.links.length *))
+% The banking letter head lists no socials; show the same links one per line after the contact details
+\extrainfo{\collectionloop{socials}{\ifnum\value{collection@iterator}>0 \makenewline\fi\csname\collectionloopkey socialsymbol\endcsname\collectionloopitem}}
+((* endif *))
 \recipient{Hiring Team}{(((job.company)))}
 \date{(((date)))}
 \opening{(((letter.greeting)))}

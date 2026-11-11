@@ -13,7 +13,7 @@ import { loadProfile } from "../src/profile/load";
 import type { About } from "../src/profile/schema";
 import { compileTex } from "../src/render/compile";
 import { extractPdfText } from "../src/render/pdftext";
-import { findTemplate, renderResume } from "../src/render/render";
+import { findTemplate, renderCoverLetter, renderResume } from "../src/render/render";
 import { resolveResume } from "../src/pipeline/resolve";
 import { formatTemplateList, listTemplates, newTemplate, templateDirs, templateProblems } from "../src/render/templates";
 
@@ -140,12 +140,27 @@ const job = { company: "Atlas Freight", role: "Senior Backend Engineer" };
 const common = { about: profile.about, job, targetPages: 1, keywords: [] as string[], profileText: "" };
 const marker = { pdflatex: "\\pdfgentounicode=1", lualatex: "\\pdfvariable gentounicode", xelatex: "fontspec" } as const;
 
-async function pdfInfo(pdf: Uint8Array): Promise<string> {
+async function pdfInfo(pdf: Uint8Array, ...flags: string[]): Promise<string> {
   const f = join(tmp(), "x.pdf");
   writeFileSync(f, pdf);
-  const p = Bun.spawn(["pdfinfo", f], { stdout: "pipe" });
+  const p = Bun.spawn(["pdfinfo", ...flags, f], { stdout: "pipe" });
   return await new Response(p.stdout).text();
 }
+
+/** Link targets from `pdfinfo -url` (one per annotation). */
+async function pdfUrls(pdf: Uint8Array): Promise<string[]> {
+  return (await pdfInfo(pdf, "-url"))
+    .split("\n")
+    .slice(1)
+    .map((l) => l.trim().split(/\s+/)[2])
+    .filter((u): u is string => !!u);
+}
+
+const hostileLinks = [
+  { label: "GitHub", url: "https://github.com/first_last/" },
+  { label: "LinkedIn", url: "https://www.linkedin.com/in/first_last-123/details/" },
+  { label: "Site", url: "https://example.com/~me/a_b?q=1%20#frag" },
+];
 
 for (const info of listTemplates(tmp()).filter((t) => t.source === "builtin")) {
   const template = findTemplate(info.id, templateDirs(tmp()));
@@ -194,6 +209,20 @@ for (const info of listTemplates(tmp()).filter((t) => t.source === "builtin")) {
       expect(text).toContain("Zoë José Núñez");
       expect(text).toContain("Łódź R&D");
       expect(atsCheck(text, resumeAtsExpect(about, sparse)).status).toBe("ok");
+    }, 300_000);
+
+    test.skipIf(skipPdf || !Bun.which("pdfinfo"))("contact links keep their raw targets and show readable text (resume and cover letter)", async () => {
+      const about: About = { ...profile.about, links: hostileLinks };
+      const resume = resolveResume(content, entries);
+      for (const tex of [renderResume(template, { about, resume, job }), renderCoverLetter(template, { about, letter, job, date: "November 11, 2026" })]) {
+        const { pdf } = await compileTex(tex, template.engine);
+        const urls = await pdfUrls(pdf);
+        for (const l of hostileLinks) expect(urls).toContain(l.url);
+        const text = (await extractPdfText(pdf))!.replace(/\s+/g, " ");
+        expect(text).toContain("github.com/first_last");
+        expect(text).toContain("linkedin.com/in/first_last-123/details");
+        expect(text).toContain("example.com/~me/a_b");
+      }
     }, 300_000);
   });
 }
