@@ -75,21 +75,27 @@ function loadParsed(app: Application): ParsedJob | null {
   }
 }
 
+/**
+ * A deliberate stop that resuming cannot get past (the user aborted, or the duplicate policy refused): the run is
+ * marked aborted, not failed, so `resumely resume` never offers it, and the error carries no resume hint.
+ */
+class RunStopped extends UserError {}
+
 type IntakeOptions = Pick<ApplyOptions, "input" | "into" | "onDuplicate">;
 
 /** Parse the posting and find or create its application, asking `onDuplicate` about an earlier one. */
 async function intake(o: IntakeOptions, appsDir: string, parse: () => Promise<ParsedJob>): Promise<{ app: Application; job: ParsedJob }> {
   const decide = async (existing: Application): Promise<Application | null> => {
-    if (!o.onDuplicate) throw new UserError(`Already applied: ${existing.slug}`, `Use --into ${existing.slug} to add a version, or --new for a separate application`);
+    if (!o.onDuplicate) throw new RunStopped(`Already applied: ${existing.slug}`, `Use --into ${existing.slug} to add a version, or --new for a separate application`);
     const choice = await o.onDuplicate(existing);
-    if (choice === "abort") throw new UserError("Aborted");
+    if (choice === "abort") throw new RunStopped("Aborted");
     return choice === "existing" ? existing : null;
   };
   let asked = false;
   let reuse: Application | null = null;
   const into = o.into;
   const guard = (dup: Application): Application => {
-    if (dup.slug !== into!.slug) throw new UserError(`--into ${into!.slug} doesn't match the earlier application ${dup.slug}`, `Use --into ${dup.slug}, or --new for a separate application`);
+    if (dup.slug !== into!.slug) throw new RunStopped(`--into ${into!.slug} doesn't match the earlier application ${dup.slug}`, `Use --into ${dup.slug}, or --new for a separate application`);
     return into!;
   };
   const byUrl = o.input.url ? findDuplicate(appsDir, { url: o.input.url, company: "", role: "" }) : null;
@@ -194,7 +200,7 @@ async function runPipeline(p: Pipeline): Promise<ApplyResult> {
   try {
     return await pipeline(p);
   } catch (e) {
-    if (e instanceof UserError && e.message === "Aborted") {
+    if (e instanceof RunStopped) {
       cp.abort();
       throw e;
     }
@@ -250,7 +256,7 @@ async function pipeline(p: Pipeline): Promise<ApplyResult> {
 
   if (p.pause) {
     const likelyGaps = keywordCoverage([...job.requirements, ...job.keywords], "", profileText).absent;
-    if (!(await p.pause(job, likelyGaps))) throw new UserError("Aborted");
+    if (!(await p.pause(job, likelyGaps))) throw new RunStopped("Aborted");
   }
 
   // Research only feeds the cover letter, so it runs only when a letter can be written.

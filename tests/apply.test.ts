@@ -9,6 +9,7 @@ import { readJobFile, type JobSource } from "../src/job/intake";
 import { findApplication, findDuplicate, listApplications } from "../src/application/store";
 import { UserError } from "../src/errors";
 import { HarnessError } from "../src/harness/adapter";
+import { listRuns, pickResumable } from "../src/pipeline/checkpoint";
 import { loadProfile } from "../src/profile/load";
 import { DEFAULT_BANNED } from "../src/pipeline/banned";
 import { validateCoverLetter } from "../src/pipeline/validate";
@@ -221,8 +222,13 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     const e = (await run().catch((x) => x)) as UserError;
     expect(e).toBeInstanceOf(UserError);
     expect(e.message).toBe(`Already applied: ${first.app.slug}`);
-    expect(e.hint).toStartWith(`Use --into ${first.app.slug} to add a version, or --new for a separate application — resume with: resumely resume `);
+    expect(e.hint).toBe(`Use --into ${first.app.slug} to add a version, or --new for a separate application`);
     expect(listApplications(layout(root).applications).length).toBe(1);
+    // A duplicate-policy refusal is not resumable: the run is aborted, never the default pick of `resumely resume`.
+    const dupRun = listRuns(layout(root).runs).find((s) => s.run_id !== first.runId)!;
+    expect(dupRun.status).toBe("aborted");
+    expect(dupRun.error).toBeNull();
+    expect(() => pickResumable(layout(root).runs)).toThrow("No failed run to resume");
 
     script(full());
     let seen: string | undefined;
@@ -242,8 +248,11 @@ describe.skipIf(!hasLatex)("applyJob: resume + cover letter", () => {
     expect(listApplications(layout(root).applications).length).toBe(2);
 
     script(full());
-    await expect(run({ onDuplicate: async () => "abort" })).rejects.toThrow("Aborted");
+    const aborted = (await run({ onDuplicate: async () => "abort" }).catch((x) => x)) as UserError;
+    expect(aborted.message).toBe("Aborted");
+    expect(aborted.hint).toBeUndefined();
     expect(listApplications(layout(root).applications).length).toBe(2);
+    expect(listRuns(layout(root).runs).filter((s) => s.status === "aborted").length).toBe(2);
   }, 120000);
 
   test("into adds a version to the given application without duplicate detection or a new app", async () => {
@@ -324,6 +333,8 @@ test.skipIf(!hasLatex)("pause resolving false aborts before any writer call and 
   const e = (await run({ pause: async (_j, g) => ((gaps = g), false) }).catch((x) => x)) as UserError;
   expect(e).toBeInstanceOf(UserError);
   expect(e.message).toBe("Aborted");
+  expect(e.hint).toBeUndefined();
+  expect(listRuns(layout(root).runs)[0]!.status).toBe("aborted");
   expect(gaps).toEqual(["Rust", "Kafka"]);
   expect(calls()).toEqual(["parse"]);
   expect(listApplications(layout(root).applications).length).toBe(1);

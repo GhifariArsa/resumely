@@ -226,6 +226,30 @@ describe.skipIf(!hasLatex)("checkpointed runs", () => {
   }, 60000);
 });
 
+test.skipIf(!hasLatex)("SIGINT during apply marks the run failed (interrupted); it stays resumable and resumes", async () => {
+  script(full({ parse: [{ $sleep: 30000 }] }));
+  const ls = join(root, "ls.jsonl");
+  const proc = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "apply", join(fx, "jobs/backend.md"), "--no-open"], {
+    env: { ...process.env, RESUMELY_HOME: root, FAKE_HARNESS_SCRIPT: join(root, "script.json"), FAKE_HARNESS_LS: ls },
+    stdin: "ignore", stdout: "ignore", stderr: "ignore",
+  });
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline && !(existsSync(ls) && readFileSync(ls, "utf8").includes("\n"))) await Bun.sleep(50);
+  proc.kill("SIGINT");
+  expect(await proc.exited).toBe(130);
+  const [runId] = runIds();
+  expect(state(runId!)).toMatchObject({ status: "failed", error: { message: "interrupted" } });
+  expect(existsSync(join(layout(root).runs, runId!, "state.json.tmp"))).toBe(false);
+
+  script(full());
+  rmSync(join(layout(root).runs, runId!, "parse", ".fake-count"), { force: true });
+  const r = await resumeRun({ root, open: false });
+  expect(r.runId).toBe(runId!);
+  expect(calls()[0]).toBe("parse");
+  expect(r.resume?.version).toBe(1);
+  expect(state(runId!).status).toBe("done");
+}, 90000);
+
 test("a corrupt state.json is unreadable", async () => {
   mkdirSync(join(layout(root).runs, "20260101-000000-abcd"), { recursive: true });
   writeFileSync(statePath("20260101-000000-abcd"), "{");
