@@ -4,7 +4,7 @@ import { parse as parseYaml } from "yaml";
 import type { ZodType } from "zod";
 import { UserError } from "../errors";
 import { stripPrivate } from "./context";
-import { AboutFrontmatter, EntryFrontmatter, SkillsSchema, type About, type Entry, type EntryType, type Profile } from "./schema";
+import { AboutFrontmatter, EntryFrontmatter, SkillsSchema, type About, type Entry, type EntryType, type Profile, type Skills } from "./schema";
 
 const FM = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const DIR_TYPE: Record<string, EntryType> = { experience: "experience", projects: "project", education: "education", extras: "other" };
@@ -26,11 +26,40 @@ function validate<T>(schema: ZodType<T>, data: unknown, file: string): T {
   return r.data;
 }
 
-function splitFrontmatter(file: string): { data: unknown; body: string } {
-  const text = readFileSync(file, "utf8");
+function splitFrontmatterText(text: string, file: string): { data: unknown; body: string } {
   const m = text.match(FM);
   if (!m) throw new UserError(`${file}: missing YAML frontmatter`, "Start the file with a --- block");
   return { data: parseYamlSafe(m[1]!, file) ?? {}, body: text.slice(m[0].length) };
+}
+
+function splitFrontmatter(file: string): { data: unknown; body: string } {
+  return splitFrontmatterText(readFileSync(file, "utf8"), file);
+}
+
+/** Entry files in the profile's entry dirs (`*.md`, sorted), with the type their directory implies. */
+export function listEntryFiles(profileDir: string): { file: string; dirType: EntryType }[] {
+  const out: { file: string; dirType: EntryType }[] = [];
+  for (const dir of Object.keys(DIR_TYPE)) {
+    const d = join(profileDir, dir);
+    if (!existsSync(d)) continue;
+    for (const name of readdirSync(d).filter((n) => n.endsWith(".md")).sort()) out.push({ file: join(d, name), dirType: DIR_TYPE[dir]! });
+  }
+  return out;
+}
+
+/** Parse one entry file's text. Throws `UserError` on missing frontmatter, invalid YAML or schema errors. */
+export function parseEntryText(text: string, file: string, dirType?: EntryType): Entry {
+  const { data, body } = splitFrontmatterText(text, file);
+  const fm = validate(EntryFrontmatter, data, file);
+  const s = stripPrivate(body);
+  return { ...fm, type: fm.type ?? dirType ?? "other", body: s.body.trim(), privateLines: s.privateLines, file };
+}
+
+/** Load `skills.yaml` (empty when absent). Throws `UserError` on invalid YAML or schema. */
+export function loadSkills(profileDir: string): Skills {
+  const skillsFile = join(profileDir, "skills.yaml");
+  if (!existsSync(skillsFile)) return {};
+  return validate(SkillsSchema, parseYamlSafe(readFileSync(skillsFile, "utf8"), skillsFile) ?? {}, skillsFile);
 }
 
 /** Load just `about.md` (header data), with private keys and sections removed. */
@@ -44,25 +73,16 @@ export function loadAbout(profileDir: string): { about: About; privateKeys: numb
 
 export function loadProfile(profileDir: string): Profile {
   const { about, privateKeys } = loadAbout(profileDir);
-
-  const skillsFile = join(profileDir, "skills.yaml");
-  const skills = existsSync(skillsFile) ? validate(SkillsSchema, parseYamlSafe(readFileSync(skillsFile, "utf8"), skillsFile) ?? {}, skillsFile) : {};
+  const skills = loadSkills(profileDir);
 
   const entries: Entry[] = [];
   const seen = new Map<string, string>();
-  for (const dir of Object.keys(DIR_TYPE)) {
-    const d = join(profileDir, dir);
-    if (!existsSync(d)) continue;
-    for (const name of readdirSync(d).filter((n) => n.endsWith(".md")).sort()) {
-      const file = join(d, name);
-      const { data, body } = splitFrontmatter(file);
-      const fm = validate(EntryFrontmatter, data, file);
-      const prev = seen.get(fm.id);
-      if (prev) throw new UserError(`Duplicate entry id "${fm.id}" in ${prev} and ${file}`);
-      seen.set(fm.id, file);
-      const s = stripPrivate(body);
-      entries.push({ ...fm, type: fm.type ?? DIR_TYPE[dir]!, body: s.body.trim(), privateLines: s.privateLines, file });
-    }
+  for (const { file, dirType } of listEntryFiles(profileDir)) {
+    const entry = parseEntryText(readFileSync(file, "utf8"), file, dirType);
+    const prev = seen.get(entry.id);
+    if (prev) throw new UserError(`Duplicate entry id "${entry.id}" in ${prev} and ${file}`);
+    seen.set(entry.id, file);
+    entries.push(entry);
   }
   return { about, entries, skills, aboutPrivateKeys: privateKeys };
 }
