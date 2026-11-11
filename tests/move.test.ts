@@ -55,9 +55,22 @@ test("runs recorded against the old folder are relinked", () => {
   cpSync(join(fx, "profile-jordan"), profileDir, { recursive: true });
   const cp = RunCheckpoint.create(layout(root).runs, "r1", { harness: "fake", options, jobText: "# Job\n", profileDir });
   cp.setApp(app);
+  cp.fail(new UserError("rate limited"));
   const moved = moveApplication(root, app, { company: "Atlas Freight Inc" });
   const state = JSON.parse(readFileSync(join(layout(root).runs, "r1", "state.json"), "utf8"));
   expect(state.app).toEqual({ dir: moved.dir, slug: moved.slug });
+});
+
+test("an application a live run is using cannot be moved until the run stops", () => {
+  const app = make();
+  const profileDir = join(root, "profile");
+  cpSync(join(fx, "profile-jordan"), profileDir, { recursive: true });
+  const cp = RunCheckpoint.create(layout(root).runs, "r1", { harness: "fake", options, jobText: "# Job\n", profileDir });
+  cp.setApp(app);
+  expect(() => moveApplication(root, app, { company: "Atlas Freight Inc" })).toThrow(`Application ${app.slug} is in use by run r1 (pid ${process.pid})`);
+  expect(existsSync(app.dir)).toBe(true);
+  cp.fail(new UserError("interrupted"));
+  expect(moveApplication(root, app, { company: "Atlas Freight Inc" }).slug).toBe("2026-11-11-atlas-freight-inc-senior-backend-engineer");
 });
 
 test("moving onto an existing slug gets a -2 suffix", () => {
