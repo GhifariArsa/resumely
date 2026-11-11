@@ -383,3 +383,58 @@ expect eof
     expect(out).toContain("1 still pending");
   }, 40_000);
 });
+
+describe("final review fixes", () => {
+  const addJson = async (obj: Record<string, unknown>, env: Record<string, string> = {}) => {
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "add", "--json", "-"], {
+      env: { ...process.env, RESUMELY_HOME: root, ...env }, stdin: new Blob([JSON.stringify(obj)]), stdout: "pipe", stderr: "pipe",
+    });
+    return p.exited;
+  };
+
+  test("I3: --accept-all leaves a new proposal that became a duplicate pending", async () => {
+    await addJson({ type: "experience", title: "Senior Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["A"] });
+    await addJson({ type: "experience", title: "Sr. Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["B"] });
+    const r = await cli("profile", "review", "--accept-all");
+    expect(r.stdout).toContain("accepted 1-exp-acme-robotics");
+    expect(r.stdout).toContain("needs a decision: 2-exp-acme-robotics-2");
+    expect(existsSync(join(layout(root).profile, "experience", "acme-robotics-2.md"))).toBe(false);
+    expect((await cli("profile", "review", "--list")).stdout).toContain("2-exp-acme-robotics-2");
+  });
+
+  test("I5: profile review refuses to decide when run by the interview agent", async () => {
+    expect(await addJson({ type: "experience", title: "Engineer", org: "Zed", start: "2020-01", end: "2021-01", bullets: ["x"] }, { RESUMELY_AGENT: "interview" })).toBe(0);
+    const env = { ...process.env, RESUMELY_HOME: root, RESUMELY_AGENT: "interview" };
+    for (const args of [["--accept", "1"], ["--accept-all"], ["--reject", "1"]]) {
+      const p = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "review", ...args], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      const [stderr, code] = await Promise.all([new Response(p.stderr).text(), p.exited]);
+      expect(code).toBe(1);
+      expect(stderr).toContain("only you can decide");
+    }
+    const list = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "profile", "review", "--list"], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    expect(await new Response(list.stdout).text()).toContain("1-exp-zed");
+    expect(existsSync(join(layout(root).profile, "experience", "zed.md"))).toBe(false);
+  });
+});
+
+describe.skipIf(Bun.which("expect") === null)("apply prompts and Ctrl-C", () => {
+  test("I4: a SIGINT handler runs while Continue? [Y/n] is waiting", async () => {
+    const exp = join(root, "sigint.exp");
+    const log = join(root, "sigint.log");
+    writeFileSync(exp, `set timeout 10
+log_file -noappend ${log}
+spawn bun ${join(fx, "prompt-sigint.ts")}
+expect "Continue?"
+sleep 0.5
+send "\\003"
+sleep 1
+send "\\r"
+expect eof
+`);
+    const p = Bun.spawn(["expect", exp], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    await p.exited;
+    const out = readFileSync(log, "utf8");
+    expect(out).toContain("SIGINT-HANDLED");
+    expect(out).not.toContain("ANSWERED");
+  }, 30_000);
+});

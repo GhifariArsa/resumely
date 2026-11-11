@@ -6,6 +6,7 @@ import { initDataRoot } from "../src/commands/init";
 import { layout } from "../src/paths";
 import { UserError } from "../src/errors";
 import { dateIssues, formatLint, lintProfile } from "../src/profile/lint";
+import { profileReadiness } from "../src/profile/inbox";
 
 const fx = join(import.meta.dir, "fixtures");
 const now = new Date("2026-11-11");
@@ -147,5 +148,24 @@ describe("formatLint", () => {
     expect(out).toContain("a profile/x.md  c1: m1");
     expect(out).toContain("- profile/y.md  c2: m2");
     expect(out.trim().endsWith("1 errors, 1 warnings")).toBe(true);
+  });
+});
+
+describe("final review fixes", () => {
+  test("M1: init's about.md placeholders are a lint warning and an apply warning", () => {
+    const fresh = mkdtempSync(join(tmpdir(), "resumely-lint-fresh-"));
+    try {
+      initDataRoot(fresh);
+      const issues = lintProfile(fresh, { now });
+      const ph = issues.filter((i) => i.code === "placeholder-about");
+      expect(ph).toHaveLength(1);
+      expect(ph[0]!.severity).toBe("warning");
+      expect(ph[0]!.file).toBe("profile/about.md");
+      expect(profileReadiness(layout(fresh).profile).warnings.join("\n")).toContain("about.md still has placeholder");
+    } finally {
+      rmSync(fresh, { recursive: true, force: true });
+    }
+    expect(lint().some((i) => i.code === "placeholder-about")).toBe(false);
+    expect(profileReadiness(pdir).warnings).toEqual([]);
   });
 });

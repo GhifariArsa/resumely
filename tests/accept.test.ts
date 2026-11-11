@@ -66,7 +66,7 @@ describe("acceptProposal", () => {
   });
   test("new whose id got taken is reassigned", () => {
     const p = mk("new", "exp-acme", { title: "Engineer", org: "Acme" });
-    acceptProposal(pdir, mk("new", "exp-acme-x", { title: "Engineer", org: "Acme" }));
+    acceptProposal(pdir, mk("new", "exp-acme-x", { title: "Engineer", org: "Other Co" }));
     writeFileSync(join(pdir, "experience", "zz.md"), "---\nid: exp-acme\ntitle: X\n---\n");
     const r = acceptProposal(pdir, p);
     expect(r.id).toBe("exp-acme-2");
@@ -149,5 +149,66 @@ describe("acceptProposal", () => {
     rejectProposal(pdir, p);
     expect(archived(p.pid).decision.kind).toBe("rejected");
     expect(loadProfile(pdir).entries).toHaveLength(5);
+  });
+});
+
+describe("final review fixes", () => {
+  test("C1: an about summary replaces only the prose before the first ## heading", () => {
+    const f = join(pdir, "about.md");
+    const live = readFileSync(f, "utf8");
+    writeFileSync(f, live.replace(/\n\n[^\n]*\n$/, "\n\nOld summary.\n\n## Career goals\n\nLead a platform team.\n\n## Private\n\nsecret-note\n\n## Preferences\n\nRemote only.\n"));
+    const p = writeProposal(pdir, { kind: "about", source: src, rationale: "", flags: [], about: { summary: "New summary." } });
+    acceptProposal(pdir, p);
+    const text = readFileSync(f, "utf8");
+    expect(text).not.toContain("Old summary.");
+    for (const s of ["New summary.", "## Career goals", "Lead a platform team.", "## Private", "secret-note", "## Preferences", "Remote only."]) expect(text).toContain(s);
+    expect(text.indexOf("New summary.")).toBeLessThan(text.indexOf("## Career goals"));
+  });
+
+  test("I1: an update keeps live sections other than Highlights and Context", () => {
+    const f = join(pdir, "experience", "atlas-labs.md");
+    writeFileSync(f, readFileSync(f, "utf8") + "\n## Stack notes\n\nBun, Postgres.\n");
+    const p = mk("update", "exp-atlas-labs", { title: "Senior Software Engineer", org: "Atlas Labs", location: "Montreal, QC", start: "2023-03", end: "present", skills: ["TypeScript"], bullets: ["Brand new bullet"] }, "exp-atlas-labs");
+    expect(previewProposal(pdir, p)).not.toContain("-## Stack notes");
+    acceptProposal(pdir, p);
+    const text = readFileSync(f, "utf8");
+    expect(text).toContain("Brand new bullet");
+    expect(text).not.toContain("Led a team of 4");
+    for (const s of ["## Stack notes", "Bun, Postgres.", "## Notes", "Shipped the new onboarding flow", "Compensation: 145000 CAD plus equity."]) expect(text).toContain(s);
+  });
+
+  test("I2: private sections from a review edit are written at accept and kept out of the inbox", () => {
+    const p = mk("update", "exp-atlas-labs", { title: "Senior Software Engineer", org: "Atlas Labs", start: "2023-03", end: "present", bullets: ["Fresh"] }, "exp-atlas-labs");
+    acceptProposal(pdir, p, { privateText: "## Private\n\nRaise promised: 999k.\n" });
+    const text = readFileSync(join(pdir, "experience", "atlas-labs.md"), "utf8");
+    expect(text).toContain("Raise promised: 999k.");
+    expect(text).toContain("Compensation: 145000 CAD plus equity.");
+    expect(readFileSync(join(inboxDir(pdir), "archive", `${p.pid}.json`), "utf8")).not.toContain("999k");
+    expect(JSON.stringify(buildAgentPayload(loadProfile(pdir)))).not.toContain("999k");
+    const n = mk("new", "exp-acme", { title: "Engineer", org: "Acme", bullets: ["Did things"] });
+    const r = acceptProposal(pdir, n, { privateText: "## Private\n\nLeft over a dispute.\n" });
+    expect(readFileSync(join(pdir, r.file), "utf8")).toContain("Left over a dispute.");
+    expect(loadProfile(pdir).entries.find((e) => e.id === "exp-acme")!.privateLines).toBe(1);
+  });
+
+  test("I3: a new proposal that duplicates a live entry needs --as at accept time", () => {
+    const a = mk("new", "exp-acme-robotics", { title: "Senior Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["A"] });
+    const b = mk("new", "exp-acme-robotics-2", { title: "Sr. Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["B"] });
+    acceptProposal(pdir, a);
+    expect(() => acceptProposal(pdir, b)).toThrow("possible duplicate of exp-acme-robotics");
+    expect(existsSync(join(pdir, "experience", "acme-robotics-2.md"))).toBe(false);
+    const r = acceptProposal(pdir, b, { as: "update" });
+    expect(r.file).toBe("experience/acme-robotics.md");
+    expect(loadProfile(pdir).entries.filter((e) => e.org === "Acme Robotics").map((e) => e.title)).toEqual(["Sr. Engineer"]);
+    expect(archived(b.pid).decision.as).toBe("update");
+    const c = mk("new", "exp-acme-robotics-3", { title: "Senior Engineer", org: "Acme Robotics", start: "2024-01", end: "present" });
+    expect(acceptProposal(pdir, c, { as: "new" }).file).toBe("experience/acme-robotics-3.md");
+  });
+
+  test("M2: a broken skills.yaml is a UserError at accept", () => {
+    writeFileSync(join(pdir, "skills.yaml"), "Languages: [oops\n");
+    const p = writeProposal(pdir, { kind: "skills", source: src, rationale: "", flags: [], skills: { Languages: ["Rust"] } });
+    expect(() => acceptProposal(pdir, p)).toThrow(UserError);
+    expect(readFileSync(join(pdir, "skills.yaml"), "utf8")).toBe("Languages: [oops\n");
   });
 });

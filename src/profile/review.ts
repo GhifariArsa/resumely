@@ -2,9 +2,9 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { openInEditor } from "../commands/editor";
-import { lineReader, type PromptIO } from "../commands/prompt";
+import { lineReader, noReadAheadStdin, type PromptIO } from "../commands/prompt";
 import { UserError } from "../errors";
-import { acceptProposal, entryMarkdown, previewProposal, rejectProposal } from "./accept";
+import { acceptProposal, bodyOf, entryMarkdown, liveDuplicate, previewProposal, privateSections, rejectProposal } from "./accept";
 import { inboxDir, listProposals, saveProposal, takenIds } from "./inbox";
 import { loadProfile, parseEntryText } from "./load";
 import { AboutChange, ProposedEntry, type Proposal } from "./proposal";
@@ -56,16 +56,25 @@ function applyEdit(profileDir: string, p: Proposal, text: string): Proposal {
   return { ...p, entry: ProposedEntry.parse({ ...fm, bullets: old.bullets, context: old.context, body }) };
 }
 
-async function editProposal(profileDir: string, p: Proposal, edit: (file: string) => Promise<void>): Promise<Proposal> {
+/**
+ * Edit `p` in the editor and save it. `## Private` sections typed into an entry are returned separately as
+ * `privateText`, never saved to the inbox (agents can read it); they are written only if accepted in this session.
+ */
+async function editProposal(
+  profileDir: string,
+  p: Proposal,
+  privateText: string,
+  edit: (file: string) => Promise<void>,
+): Promise<{ proposal: Proposal; privateText: string }> {
   const isEntry = !!p.entry;
   const file = join(inboxDir(profileDir), `${p.pid}.edit.${isEntry ? "md" : "yaml"}`);
-  writeFileSync(file, isEntry ? entryMarkdown(p.entry!) : stringify({ [p.kind]: p.kind === "skills" ? p.skills : p.about }));
+  writeFileSync(file, isEntry ? entryMarkdown(p.entry!) + (privateText ? `\n${privateText}` : "") : stringify({ [p.kind]: p.kind === "skills" ? p.skills : p.about }));
   try {
     await edit(file);
     const text = await Bun.file(file).text();
     const next = applyEdit(profileDir, p, text);
     saveProposal(profileDir, next);
-    return next;
+    return { proposal: next, privateText: isEntry ? privateSections(bodyOf(text)) : "" };
   } finally {
     if (existsSync(file)) unlinkSync(file);
   }
@@ -80,31 +89,47 @@ export async function reviewInbox(o: {
   const { profileDir } = o;
   const out = o.out ?? process.stderr;
   const edit = o.edit ?? ((f: string) => openInEditor(f));
-  const reader = lineReader({ input: o.io?.input, output: o.io?.output ?? out });
+  // Reads stdin only while asking, so the editor (which inherits stdin) gets every keystroke.
+  const reader = lineReader({ input: o.io?.input ?? noReadAheadStdin, output: o.io?.output ?? out });
   const res = { accepted: [] as string[], rejected: [] as string[], skipped: [] as string[] };
   const queue = listProposals(profileDir);
   const n = queue.length;
   let visited = 0;
 
+  let priv = ""; // `## Private` text from editing the current proposal; kept in memory only
   const show = (p: Proposal) => {
-    out.write(`${p.rationale ? p.rationale + "\n" : ""}${p.flags.map((f) => `! ${f}\n`).join("")}${previewProposal(profileDir, p).replace(/\n?$/, "\n")}`);
+    out.write(`${p.rationale ? p.rationale + "\n" : ""}${p.flags.map((f) => `! ${f}\n`).join("")}${previewProposal(profileDir, p, priv).replace(/\n?$/, "\n")}`);
+  };
+  const dropPrivate = () => {
+    if (priv) out.write("note: private notes from your edit were not saved (they are written only when you accept)\n");
+    priv = "";
   };
 
   try {
     outer: for (const [i, first] of queue.entries()) {
       let p = first;
+      priv = "";
       out.write(`\n[${i + 1}/${n}] ${p.pid}  ${p.kind}  ${subject(p)}   (${p.source.kind}: ${p.source.ref})\n`);
       show(p);
-      const dup = p.kind === "duplicate";
-      const prompt = dup
-        ? `[u]pdate ${p.target_id} / [n]ew entry / [e]dit / [r]eject / [s]kip / [q]uit: `
-        : "[a]ccept [e]dit [r]eject [s]kip [q]uit: ";
+      let noted = "";
       for (;;) {
+        // A `new` proposal may duplicate an entry accepted earlier (in this review or since it was staged).
+        const dupOf = p.kind === "duplicate" ? p.target_id : liveDuplicate(profileDir, p)?.id;
+        const dup = dupOf !== undefined;
+        if (p.kind === "new" && dup && noted !== dupOf) out.write(`possible duplicate of ${(noted = dupOf!)}\n`);
+        const prompt = dup ? `[u]pdate ${dupOf} / [n]ew entry / [e]dit / [r]eject / [s]kip / [q]uit: ` : "[a]ccept [e]dit [r]eject [s]kip [q]uit: ";
         const raw = await reader.ask(prompt);
-        if (raw === null) break outer;
+        if (raw === null) {
+          dropPrivate();
+          break outer;
+        }
         const a = raw.trim().toLowerCase();
-        if (a === "q") break outer;
+        if (a === "q") {
+          dropPrivate();
+          break outer;
+        }
         if (a === "s") {
+          dropPrivate();
           res.skipped.push(p.pid);
           break;
         }
@@ -116,7 +141,7 @@ export async function reviewInbox(o: {
         }
         if (a === "e") {
           try {
-            p = await editProposal(profileDir, p, edit);
+            ({ proposal: p, privateText: priv } = await editProposal(profileDir, p, priv, edit));
             show(p);
           } catch (e) {
             if (!(e instanceof UserError)) throw e;
@@ -127,7 +152,7 @@ export async function reviewInbox(o: {
         const acceptAs = dup ? (a === "u" ? "update" : a === "n" ? "new" : undefined) : a === "a" ? ("a" as const) : undefined;
         if (!acceptAs) continue;
         try {
-          const r = acceptProposal(profileDir, p, acceptAs === "a" ? {} : { as: acceptAs });
+          const r = acceptProposal(profileDir, p, { ...(acceptAs === "a" ? {} : { as: acceptAs }), privateText: priv });
           out.write(`accepted ${p.pid} → profile/${r.file}\n`);
           res.accepted.push(p.pid);
           break;

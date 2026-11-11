@@ -7,7 +7,7 @@ import { loadConfig } from "../src/config";
 import { UserError } from "../src/errors";
 import { HarnessError } from "../src/harness/adapter";
 import { layout } from "../src/paths";
-import { expandInteractive, INTERACTIVE_PRESETS, INTERVIEW_PROMPT, launchInterview, resolveInteractive } from "../src/profile/interview";
+import { expandInteractive, INTERACTIVE_PRESETS, INTERVIEW_PROMPT, interviewHint, launchInterview, resolveInteractive } from "../src/profile/interview";
 
 const fx = join(import.meta.dir, "fixtures");
 let root: string;
@@ -120,5 +120,24 @@ describe("launchInterview", () => {
     expect(err).toBeInstanceOf(HarnessError);
     expect(err.kind).toBe("not_installed");
     expect(err.message).toBe("claude is not installed");
+  });
+});
+
+describe("final review fixes", () => {
+  test("I5: the harness runs with RESUMELY_AGENT=interview", async () => {
+    config('harness = "claude"\n');
+    let env: Record<string, string | undefined> = {};
+    await launchInterview({ root, spawn: async (_a, o) => ((env = o.env), 0) });
+    expect(env.RESUMELY_AGENT).toBe("interview");
+  });
+
+  test("I6: the gap hint single-quotes untrusted text so the shell never expands it", async () => {
+    const marker = join(root, "pwned");
+    const reqs = [`Rust $(touch ${marker})`, "`touch " + marker + "`", "it's \"fine\" \\ $HOME"];
+    const hint = interviewHint(reqs);
+    expect(hint.startsWith("resumely interview --focus '")).toBe(true);
+    const sh = Bun.spawn(["sh", "-c", `printf '%s' ${hint.slice("resumely interview --focus ".length)}`], { stdout: "pipe" });
+    expect(await new Response(sh.stdout).text()).toBe(reqs.join(", "));
+    expect(existsSync(marker)).toBe(false);
   });
 });

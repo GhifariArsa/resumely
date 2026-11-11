@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { aboutPlaceholders } from "../commands/init";
 import { UserError } from "../errors";
 import { normaliseSkill } from "../pipeline/validate";
 import { layout, requireDataRoot } from "../paths";
@@ -98,7 +99,12 @@ export function lintProfile(root: string, opts: { now?: Date } = {}): LintIssue[
 
   let aboutBody = "";
   try {
-    aboutBody = loadAbout(pdir).about.body;
+    const { about } = loadAbout(pdir);
+    aboutBody = about.body;
+    const placeholders = aboutPlaceholders(about);
+    if (placeholders.length) {
+      add(null, rel(join(pdir, "about.md")), "warning", "placeholder-about", `still has the placeholder ${placeholders.join(", ")} from resumely init`);
+    }
   } catch (e) {
     add(null, rel(join(pdir, "about.md")), "error", "parse-error", e instanceof UserError ? e.message : String(e));
   }

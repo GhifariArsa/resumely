@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { UserError } from "./errors";
 import { resolveDataRoot, requireDataRoot, layout } from "./paths";
 import { loadProfile } from "./profile/load";
-import { acceptProposal, rejectProposal } from "./profile/accept";
+import { acceptProposal, liveDuplicate, rejectProposal } from "./profile/accept";
 import { findProposal, listProposals, profileReadiness } from "./profile/inbox";
 import { importProfile } from "./profile/import";
 import { formatLint, lintProfile } from "./profile/lint";
@@ -15,7 +15,7 @@ import { formatInboxList, reviewInbox } from "./profile/review";
 import { parseAddInput, stageAdd, type AddFlags } from "./profile/add";
 import type { Proposal } from "./profile/proposal";
 import { formatEntry, formatProfileContext, formatProfileTree } from "./profile/context";
-import { launchInterview } from "./profile/interview";
+import { AGENT_ENV, interviewHint, launchInterview } from "./profile/interview";
 import { initDataRoot } from "./commands/init";
 import { openFile } from "./commands/open";
 import { resolveJobInput } from "./job/intake";
@@ -126,6 +126,7 @@ profile
   .action(async (o: { list?: boolean; acceptAll?: boolean; as?: string }) => {
     const pdir = layout(dataRoot()).profile;
     if (o.list) return console.log(formatInboxList(listProposals(pdir)));
+    if (process.env[AGENT_ENV]) throw new UserError("profile review can't accept or reject from an agent session: only you can decide", "Run it yourself after the interview: resumely profile review");
     if (o.as !== undefined) {
       if (o.as !== "update" && o.as !== "new") throw new UserError(`Invalid --as "${o.as}"`, "Use update or new");
       if (decisions.filter((d) => d.op === "accept").length !== 1 || decisions.length !== 1) throw new UserError("--as needs exactly one --accept", "e.g. resumely profile review --accept 3 --as update");
@@ -153,7 +154,7 @@ profile
     }
     if (o.acceptAll) {
       for (const p of listProposals(pdir)) {
-        if (p.kind === "duplicate") console.log(`needs a decision: ${p.pid} (resumely profile review --accept ${p.pid} --as update|new)`);
+        if (p.kind === "duplicate" || liveDuplicate(pdir, p)) console.log(`needs a decision: ${p.pid} (resumely profile review --accept ${p.pid} --as update|new)`);
         else attempt(() => `accepted ${p.pid} → profile/${acceptProposal(pdir, p).file}`);
       }
     }
@@ -283,7 +284,7 @@ program
     for (const f of r.failures) console.error(`failed: ${f.kind}: ${f.message}${f.hint ? ` (${f.hint})` : ""}`);
     if (r.inferred.length) console.error(["inferred claims to review:", ...r.inferred.map((c) => `  - ${c.text} [${c.entry_ids.join(", ")}]`)].join("\n"));
     if (r.gaps.length) console.error(["gaps:", ...r.gaps.map((g) => `  - ${g.requirement}: ${g.note}`)].join("\n"));
-    if (r.gaps.length) console.error(`hint: if any of these are true, add them: resumely interview --focus "${r.gaps.slice(0, 5).map((g) => g.requirement).join(", ")}"`);
+    if (r.gaps.length) console.error(`hint: if any of these are true, add them: ${interviewHint(r.gaps.slice(0, 5).map((g) => g.requirement))}`);
     printWarnings(r.warnings);
     if (r.failures.length || r.resume?.ready === false || r.cover?.ready === false) process.exitCode = 1;
   });

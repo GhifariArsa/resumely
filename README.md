@@ -58,7 +58,7 @@ resumely profile review --accept 3 --reject 4 [--as update|new]
 resumely profile review --accept-all
 ```
 
-Interactive keys: `a` accept, `e` edit in `$VISUAL`/`$EDITOR` (split on whitespace, never run through a shell), `r` reject, `s` skip, `q` quit; a possible duplicate offers `u` update the existing entry and `n` add as a new entry. Accepting an update keeps the existing entry's `## Private` sections. `--accept-all` skips possible duplicates, which need an explicit `--accept <pid> --as update|new`. Decided proposals are moved to `profile/.inbox/archive/` with the decision, as an audit trail.
+Interactive keys: `a` accept, `e` edit in `$VISUAL`/`$EDITOR` (split on whitespace, never run through a shell), `r` reject, `s` skip, `q` quit; a possible duplicate offers `u` update the existing entry and `n` add as a new entry. Accepting an update replaces only the entry's frontmatter, the prose before its first `## ` heading and its `## Highlights` and `## Context` sections; every other section, including `## Private`, is kept. Accepting an `about` summary replaces only the prose before the first `## ` heading of `about.md`. A `## Private` section you type while editing a proposal is never saved in the inbox (agents can read it): it is written to the profile when you accept the proposal in the same session, and dropped (with a note) if you skip or quit. `--accept-all` skips possible duplicates, which need an explicit `--accept <pid> --as update|new`; a new entry is checked again when you accept it, so a second proposal for a role you just accepted is treated as a possible duplicate too. When two proposals share a number, use the full pid. Decided proposals are moved to `profile/.inbox/archive/` with the decision, as an audit trail.
 
 ### Add one thing
 
@@ -77,7 +77,7 @@ EOF
 resumely interview [--harness <name>] [--focus "recent work at Acme"]
 ```
 
-Opens your agent harness interactively (interactive terminals only) in a workspace holding your profile, minus private content, plus instructions to interview you. The agent stages what it learns with `profile add`; your harness's own permission prompt gates each call. Review the result with `profile review`. The launch command per harness is built in; override it with `interactive_command` on an adapter (an argv array; `{prompt}`, `{workspace}` and `{inbox}` are substituted):
+Opens your agent harness interactively (interactive terminals only) in a workspace holding your profile, minus private content, plus instructions to interview you. The agent stages what it learns with `profile add`. Whether you approve each of its commands depends on the harness and its settings: Claude asks before each Bash call by default, but the `pi` preset, for one, runs them without asking. Either way the agent can only stage proposals: the harness runs with `RESUMELY_AGENT=interview` set, and `profile review` refuses to accept or reject anything while it is set (`--list` still works). This guards against an agent deciding for you, not against a deliberately hostile one. Review the result with `profile review`. The launch command per harness is built in; override it with `interactive_command` on an adapter (an argv array; `{prompt}`, `{workspace}` and `{inbox}` are substituted):
 
 ```toml
 [adapters.mine]
@@ -90,7 +90,7 @@ interactive_command = ["my-agent", "{prompt}"]
 resumely profile lint [--json]
 ```
 
-Prints problems and exits 1 if any is an `error`. Codes: `parse-error`, `duplicate-id`, `end-before-start` and `future-start` (errors); `future-end`, `missing-dates`, `outcome-less-bullet` (a bullet without a measurable result), `duplicate-skill`, `private-heading`, `unused-entry` (not cited by any resume or cover letter; only checked once you have applications) and `pending-proposals` (warnings).
+Prints problems and exits 1 if any is an `error`. Codes: `parse-error`, `duplicate-id`, `end-before-start` and `future-start` (errors); `future-end`, `missing-dates`, `outcome-less-bullet` (a bullet without a measurable result), `duplicate-skill`, `private-heading`, `placeholder-about` (`about.md` still has the name, email or summary placeholder from `resumely init`; `apply` warns about it too), `unused-entry` (not cited by any resume or cover letter; only checked once you have applications) and `pending-proposals` (warnings).
 
 ### Trace
 

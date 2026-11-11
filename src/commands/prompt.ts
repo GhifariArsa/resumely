@@ -7,11 +7,26 @@ export const isInteractive = (): boolean => Boolean(process.stdin.isTTY);
 type Chunks = { [Symbol.asyncIterator](): { next(): Promise<IteratorResult<string | Uint8Array>>; return?(value?: unknown): unknown } };
 export type PromptIO = { input?: Chunks; output?: { write(s: string): unknown } };
 
+/** stdin as an async stream: the event loop stays free while waiting, so signal handlers (Ctrl-C) run. */
+async function* stdinChunks(): AsyncGenerator<string | Uint8Array> {
+  const reader = Bun.stdin.stream().getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      yield value as Uint8Array;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /**
  * fd 0 as chunks, read only while a question is pending. Nothing reads ahead, so a child that inherits stdin
- * (the review's editor) gets every keystroke typed while it runs.
+ * (the review's editor) gets every keystroke typed while it runs. The read blocks the event loop, so use it only
+ * where that is needed (`profile review`), never where a SIGINT handler must run while waiting.
  */
-const stdinChunks: Chunks = {
+export const noReadAheadStdin: Chunks = {
   [Symbol.asyncIterator]: () => ({
     async next(): Promise<IteratorResult<Uint8Array>> {
       const buf = Buffer.alloc(4096);
@@ -32,7 +47,8 @@ const stdinChunks: Chunks = {
 
 /** Asks questions on `output` and reads answers line by line from `input`; `ask` gives null at EOF. */
 export function lineReader({ input, output = process.stderr }: PromptIO) {
-  const chunks = (input ?? stdinChunks)[Symbol.asyncIterator]();
+  const source: Chunks = input ?? stdinChunks();
+  const chunks = source[Symbol.asyncIterator]();
   const decoder = new TextDecoder();
   let buf = "";
   let eof = false;

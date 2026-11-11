@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { cpSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
@@ -103,4 +103,68 @@ describe("stageDrafts no-op updates", () => {
     expect(r.staged).toHaveLength(0);
     expect(r.skipped).toContain("proj-routekit: no changes");
   });
+});
+
+describe("final review fixes", () => {
+  test("C1: an about summary equal to the prose before the first ## heading is not staged", () => {
+    const f = join(pdir, "about.md");
+    writeFileSync(f, readFileSync(f, "utf8").trimEnd() + "\n\n## Career goals\n\nLead a platform team.\n");
+    const profile = loadProfile(pdir);
+    const summary = "Full-stack engineer with 8 years of experience building data-heavy web products and developer tooling.";
+    expect(stageDrafts(pdir, profile, [], { about: { summary: `  ${summary}\n` } }, src).staged).toHaveLength(0);
+    expect(stageDrafts(pdir, profile, [], { about: { summary: "Different." } }, src).staged).toHaveLength(1);
+  });
+
+  test("I1: an update equal to the live Highlights is a no-op even with other live sections", () => {
+    const profile = loadProfile(pdir);
+    const live = profile.entries.find((e) => e.id === "exp-atlas-labs")!;
+    const bullets = live.body.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2));
+    const e = draft({ title: live.title, org: live.org, location: live.location, start: live.start, end: live.end as DraftEntry["end"], skills: live.skills, tags: live.tags, bullets });
+    const r = stageDrafts(pdir, profile, [{ kind: "update", target_id: "exp-atlas-labs", entry: e, rationale: "r" }], {}, src);
+    expect(r.staged).toHaveLength(0);
+    expect(r.skipped).toContain("exp-atlas-labs: no changes");
+  });
+
+  test("I3: a new draft resembling a pending new proposal is flagged", () => {
+    const profile = loadProfile(pdir);
+    const a = { kind: "new" as const, entry: draft({ title: "Senior Engineer", org: "Acme Robotics", start: "2024-01", end: "present" }), rationale: "a" };
+    const b = { kind: "new" as const, entry: draft({ title: "Sr. Engineer", org: "Acme Robotics", start: "2024-01", end: "present" }), rationale: "b" };
+    const r = stageDrafts(pdir, profile, [a, b], {}, src);
+    expect(r.staged[0]!.flags).toEqual([]);
+    expect(r.staged[1]!.flags.join("\n")).toContain(`possible duplicate of pending proposal ${r.staged[0]!.pid}`);
+  });
+
+  test("I7: an ambiguous numeric ref is a UserError listing the pids", () => {
+    const a = writeProposal(pdir, newEntry("exp-a"));
+    writeFileSync(join(inboxDir(pdir), "1-exp-b.json"), readFileSync(join(inboxDir(pdir), `${a.pid}.json`), "utf8").replaceAll("exp-a", "exp-b"));
+    try {
+      findProposal(pdir, "1");
+      throw new Error("should throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(UserError);
+      expect((e as UserError).message).toContain("1-exp-a");
+      expect((e as UserError).message).toContain("1-exp-b");
+    }
+    expect(findProposal(pdir, "1-exp-b").pid).toBe("1-exp-b");
+  });
+
+  test("I7: concurrent writers get distinct numbers", async () => {
+    const go = join(root, "go");
+    const inbox = join(import.meta.dir, "../src/profile/inbox.ts");
+    const n = 8;
+    const procs = Array.from({ length: n }, (_, i) =>
+      Bun.spawn(["bun", "-e", `
+        import { existsSync } from "node:fs";
+        import { writeProposal } from ${JSON.stringify(inbox)};
+        while (!existsSync(${JSON.stringify(go)})) await Bun.sleep(1);
+        writeProposal(${JSON.stringify(pdir)}, { kind: "new", source: { kind: "manual", ref: "m" }, rationale: "", flags: [], entry: { type: "project", title: "P${i}", skills: [], tags: [], bullets: [], context: "", id: "proj-p${i}" } });
+      `], { stdout: "ignore", stderr: "pipe" }),
+    );
+    await Bun.sleep(1500);
+    writeFileSync(go, "");
+    for (const p of procs) expect(await p.exited).toBe(0);
+    const nums = listProposals(pdir).map((p) => p.pid.split("-")[0]);
+    expect(nums).toHaveLength(n);
+    expect(new Set(nums).size).toBe(n);
+  }, 30_000);
 });

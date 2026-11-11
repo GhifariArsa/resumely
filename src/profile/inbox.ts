@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { slugify } from "../application/slug";
 import { UserError } from "../errors";
 import { normaliseSkill } from "../pipeline/validate";
-import { sameAsLive } from "./accept";
+import { aboutPlaceholders } from "../commands/init";
+import { mergeBody, normaliseBody, sameAsLive } from "./accept";
 import { loadProfile } from "./load";
 import { AboutChange, DraftEntry, Proposal, type Draft } from "./proposal";
 import type { Entry, EntryType, Profile } from "./schema";
@@ -46,27 +47,55 @@ function nextNumber(profileDir: string): number {
   return 1 + Math.max(0, ...nums);
 }
 
-export function writeProposal(profileDir: string, p: Omit<Proposal, "pid" | "created">, now: Date = new Date()): Proposal {
-  const dir = inboxDir(profileDir);
-  mkdirSync(dir, { recursive: true });
-  const slug = p.entry?.id ?? (p.kind === "skills" ? "skills" : "about");
+const LOCK_STALE_MS = 10_000;
+
+/** Run `fn` holding `.inbox/.lock`, so concurrent `profile add` calls never pick the same proposal number. */
+function withInboxLock<T>(profileDir: string, fn: () => T): T {
+  const lock = join(inboxDir(profileDir), ".lock");
+  const deadline = Date.now() + 2 * LOCK_STALE_MS;
   for (;;) {
-    const pid = `${nextNumber(profileDir)}-${slug}`;
-    const full = Proposal.parse({ ...p, pid, created: now.toISOString() });
     try {
-      writeFileSync(join(dir, `${pid}.json`), JSON.stringify(full, null, 2) + "\n", { flag: "wx" });
-      return full;
+      writeFileSync(lock, String(process.pid), { flag: "wx" });
+      break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    }
+    try {
+      if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) unlinkSync(lock); // left by a killed process
+    } catch {
+      /* released meanwhile */
+    }
+    if (Date.now() > deadline) throw new UserError("The review inbox is busy", `If no other resumely is running, delete ${lock}`);
+    Bun.sleepSync(5);
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      unlinkSync(lock);
+    } catch {
+      /* already removed as stale */
     }
   }
 }
 
+export function writeProposal(profileDir: string, p: Omit<Proposal, "pid" | "created">, now: Date = new Date()): Proposal {
+  const dir = inboxDir(profileDir);
+  mkdirSync(dir, { recursive: true });
+  const slug = p.entry?.id ?? (p.kind === "skills" ? "skills" : "about");
+  return withInboxLock(profileDir, () => {
+    const full = Proposal.parse({ ...p, pid: `${nextNumber(profileDir)}-${slug}`, created: now.toISOString() });
+    writeFileSync(join(dir, `${full.pid}.json`), JSON.stringify(full, null, 2) + "\n", { flag: "wx" });
+    return full;
+  });
+}
+
 export function findProposal(profileDir: string, ref: string): Proposal {
   const all = listProposals(profileDir);
-  const hit = /^\d+$/.test(ref) ? all.find((p) => numOf(p.pid) === Number(ref)) : all.find((p) => p.pid === ref);
-  if (!hit) throw new UserError(`No pending proposal "${ref}"`, "resumely profile review --list");
-  return hit;
+  const hits = /^\d+$/.test(ref) ? all.filter((p) => numOf(p.pid) === Number(ref)) : all.filter((p) => p.pid === ref);
+  if (!hits.length) throw new UserError(`No pending proposal "${ref}"`, "resumely profile review --list");
+  if (hits.length > 1) throw new UserError(`"${ref}" matches several proposals: ${hits.map((p) => p.pid).join(", ")}`, `Use the full pid, e.g. --accept ${hits[0]!.pid}`);
+  return hits[0]!;
 }
 
 export function saveProposal(profileDir: string, p: Proposal): void {
@@ -152,11 +181,18 @@ export function stageDrafts(
     const entry = DraftEntry.parse(d.entry);
     let kind = d.kind;
     let target_id = d.target_id;
+    const flags = [...(d.flags ?? [])];
     if (kind === "new") {
       const dup = findLikelyDuplicate(entry, profile.entries, now);
       if (dup) {
         kind = "duplicate";
         target_id = dup.id;
+      } else {
+        // Accepting both would add the same role twice; the second accept will ask (update or new).
+        const pendingNew = pending.filter((p) => p.kind === "new" && p.entry);
+        const hit = findLikelyDuplicate(entry, pendingNew.map((p) => p.entry as unknown as Entry), now);
+        const other = pendingNew.find((p) => (p.entry as unknown) === hit);
+        if (other) flags.push(`possible duplicate of pending proposal ${other.pid}`);
       }
     }
     if (kind === "update") {
@@ -184,7 +220,7 @@ export function stageDrafts(
       kind,
       source,
       rationale: d.rationale,
-      flags: d.flags ?? [],
+      flags,
       ...(target_id ? { target_id } : {}),
       entry: { ...entry, id },
     });
@@ -205,10 +241,13 @@ export function stageDrafts(
   }
 
   if (extra.about) {
-    const live: Record<string, unknown> = { ...profile.about, summary: profile.about.body };
+    const live: Record<string, unknown> = { ...profile.about };
     const about: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(extra.about)) {
-      if (v !== undefined && !isDeepStrictEqual(v, live[k])) about[k] = v;
+      if (v === undefined) continue;
+      // The summary is the prose before the first `## ` heading; a change is whatever accepting would change.
+      const same = k === "summary" ? mergeBody(profile.about.body, v as string) === normaliseBody(profile.about.body) : isDeepStrictEqual(v, live[k]);
+      if (!same) about[k] = v;
     }
     if (Object.keys(about).length) {
       const same = pending.find((p) => p.kind === "about" && isDeepStrictEqual(p.about, about));
@@ -224,7 +263,10 @@ export function profileReadiness(profileDir: string): { error?: UserError; warni
   const warnings: string[] = [];
   const pending = listProposals(profileDir).length;
   if (pending) warnings.push(`${pending} profile proposals awaiting review (resumely profile review)`);
-  if (loadProfile(profileDir).entries.length === 0) {
+  const profile = loadProfile(profileDir);
+  const placeholders = aboutPlaceholders(profile.about);
+  if (placeholders.length) warnings.push(`about.md still has placeholder ${placeholders.join(", ")} from resumely init; edit profile/about.md`);
+  if (profile.entries.length === 0) {
     const hint = pending ? "Run: resumely profile review (your imported proposals are waiting)" : "Run: resumely profile import <resume.pdf>, then resumely profile review";
     return { error: new UserError("Your profile has no entries yet", hint), warnings };
   }

@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDataRoot } from "../src/commands/init";
@@ -136,5 +136,48 @@ describe("editor", () => {
   });
   test("missing editor is a UserError", async () => {
     await expect(openInEditor(join(root, "x.md"), { EDITOR: "no-such-editor-xyz" })).rejects.toThrow('Editor "no-such-editor-xyz" not found');
+  });
+});
+
+describe("final review fixes", () => {
+  test("I2: a ## Private section typed in an edit reaches the live file, never the inbox", async () => {
+    const b = mk("update", "exp-atlas-labs", { title: "Staff Engineer", org: "Atlas Labs", start: "2023-03", end: "present", bullets: ["Led"] }, "exp-atlas-labs");
+    const n = mk("new", "proj-zed", { type: "project", title: "Zed", bullets: ["Built it"] });
+    const inboxText = () => [...readdirSync(inboxDir(pdir)).filter((f) => f.endsWith(".json")).map((f) => join(inboxDir(pdir), f)), ...readdirSync(join(inboxDir(pdir), "archive")).map((f) => join(inboxDir(pdir), "archive", f))].map((f) => readFileSync(f, "utf8")).join("\n");
+    const addPrivate = (note: string) => async (f: string) => void (await Bun.write(f, readFileSync(f, "utf8") + `\n## Private\n\n${note}\n`));
+    let edits = 0;
+    const edit = async (f: string) => (edits++ === 0 ? addPrivate("Raise promised: 999k.")(f) : addPrivate("Side project, not public.")(f));
+    const { r, out } = await run(["e", "a", "e", "a"], edit);
+    expect(r.accepted).toEqual([b.pid, n.pid]);
+    const atlas = readFileSync(join(pdir, "experience/atlas-labs.md"), "utf8");
+    expect(atlas).toContain("Raise promised: 999k.");
+    expect(atlas).toContain("Compensation: 145000 CAD plus equity.");
+    expect(readFileSync(join(pdir, "projects/zed.md"), "utf8")).toContain("Side project, not public.");
+    expect(inboxText()).not.toContain("999k");
+    expect(inboxText()).not.toContain("Side project");
+    expect(out).toContain("+Raise promised: 999k.");
+  });
+
+  test("I2: edited private notes are shown again on re-edit, and skipping says they were not saved", async () => {
+    mk("new", "proj-zed", { type: "project", title: "Zed", bullets: ["Built it"] });
+    let seen = "";
+    let edits = 0;
+    const edit = async (f: string) => {
+      if (edits++ === 0) await Bun.write(f, readFileSync(f, "utf8") + "\n## Private\n\nsecret-x\n");
+      else seen = readFileSync(f, "utf8");
+    };
+    const { out } = await run(["e", "e", "s"], edit);
+    expect(seen).toContain("secret-x");
+    expect(out).toContain("private notes from your edit were not saved");
+  });
+
+  test("I3: a new proposal that duplicates a live entry offers update/new", async () => {
+    const a = mk("new", "exp-acme-robotics", { title: "Senior Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["A"] });
+    const b = mk("new", "exp-acme-robotics-2", { title: "Sr. Engineer", org: "Acme Robotics", start: "2024-01", end: "present", bullets: ["B"] });
+    const { r, out } = await run(["a", "a", "u"]);
+    expect(r.accepted).toEqual([a.pid, b.pid]);
+    expect(out).toContain("[u]pdate exp-acme-robotics / [n]ew entry");
+    expect(existsSync(join(pdir, "experience/acme-robotics-2.md"))).toBe(false);
+    expect(readFileSync(join(pdir, "experience/acme-robotics.md"), "utf8")).toContain("Sr. Engineer");
   });
 });

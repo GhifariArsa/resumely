@@ -54,6 +54,17 @@ const spawnInherit: SpawnFn = async (argv, opts) => {
 
 const shellQuote = (a: string) => (/\s/.test(a) ? `'${a.replaceAll("'", `'\\''`)}'` : a);
 
+/** Single-quoted for POSIX shells: nothing inside expands, so untrusted text is safe to copy-paste. */
+const singleQuote = (a: string) => `'${a.replaceAll("'", `'\\''`)}'`;
+
+/** The command to suggest for job requirements the profile may be missing (posting text is untrusted). */
+export function interviewHint(requirements: string[]): string {
+  return `resumely interview --focus ${singleQuote(requirements.map((r) => r.replace(/\s+/g, " ").trim()).join(", "))}`;
+}
+
+/** Set in the interview harness's environment; `profile review` refuses to decide anything when it is present. */
+export const AGENT_ENV = "RESUMELY_AGENT";
+
 /** Open the harness interactively with instructions to interview the user and stage proposals (never the live profile). */
 export async function launchInterview(o: { root: string; harness?: string; focus?: string; spawn?: SpawnFn }): Promise<{ workspace: string; exitCode: number; proposals: Proposal[] }> {
   const l = layout(o.root);
@@ -77,7 +88,7 @@ export async function launchInterview(o: { root: string; harness?: string; focus
   const argv = expandInteractive(template, { prompt: INTERVIEW_PROMPT, workspace, inbox, model: config.adapters[name]?.model });
   let exitCode: number;
   try {
-    exitCode = await (o.spawn ?? spawnInherit)(argv, { cwd: workspace, env: { ...process.env, RESUMELY_HOME: o.root } });
+    exitCode = await (o.spawn ?? spawnInherit)(argv, { cwd: workspace, env: { ...process.env, RESUMELY_HOME: o.root, [AGENT_ENV]: "interview" } });
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") {
       throw new HarnessError(`${name} is not installed`, `Install ${argv[0]} or choose another harness with --harness`, "not_installed");
