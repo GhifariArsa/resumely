@@ -12,6 +12,7 @@ import { formatInboxList, reviewInbox } from "./profile/review";
 import { parseAddInput, stageAdd, type AddFlags } from "./profile/add";
 import type { Proposal } from "./profile/proposal";
 import { formatEntry, formatProfileContext, formatProfileTree } from "./profile/context";
+import { launchInterview } from "./profile/interview";
 import { initDataRoot } from "./commands/init";
 import { openFile } from "./commands/open";
 import { resolveJobInput } from "./job/intake";
@@ -145,6 +146,18 @@ profile
         else attempt(() => `accepted ${p.pid} → profile/${acceptProposal(pdir, p).file}`);
       }
     }
+  });
+
+program
+  .command("interview")
+  .description("Open your agent harness interactively to interview you; its proposals wait in the review inbox")
+  .option("--harness <name>", "agent harness to use")
+  .option("--focus <text>", "what to ask about, e.g. \"recent work at Acme\"")
+  .action(async (o: { harness?: string; focus?: string }) => {
+    if (!isInteractive()) throw new UserError("interview needs an interactive terminal");
+    const r = await launchInterview({ root: dataRoot(), harness: o.harness, focus: o.focus });
+    console.error(r.proposals.length ? `${r.proposals.length} proposals staged — review them with: resumely profile review` : "no proposals staged");
+    process.exitCode = r.exitCode;
   });
 
 const progress = (m: string) => console.error(m);

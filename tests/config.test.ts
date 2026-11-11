@@ -71,3 +71,11 @@ test("review config defaults and validation", () => {
   expect(c2.banned_phrases).toEqual(["synergy"]);
   expect(c2.adapters.x!.research_command).toEqual(["b", "{prompt}"]);
 });
+
+test("adapter interactive_command parses as an argv array", () => {
+  const d = mkdtempSync(join(tmpdir(), "resumely-"));
+  writeFileSync(join(d, "config.toml"), '[adapters.claude]\ncommand = ["x"]\ninteractive_command = ["x","{prompt}"]\n');
+  expect(loadConfig(d).adapters.claude!.interactive_command).toEqual(["x", "{prompt}"]);
+  writeFileSync(join(d, "config.toml"), '[adapters.claude]\ncommand = ["x"]\ninteractive_command = "x"\n');
+  expectUserError(() => loadConfig(d));
+});

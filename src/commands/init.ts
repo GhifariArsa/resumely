@@ -25,6 +25,7 @@ const CONFIG_TOML = `# resumely config. Uncomment and edit to override defaults.
 # command = ["my-agent", "--model", "{model}", "--prompt-file", "{prompt}"]
 # check = ["my-agent", "--version"]
 # model = "my-model"   # optional; without it "--model", "{model}" is dropped
+# interactive_command = ["my-agent", "{prompt}"]   # used by resumely interview
 `;
 
 const ABOUT_MD = `---

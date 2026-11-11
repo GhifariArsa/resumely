@@ -224,3 +224,9 @@ describe("profile review", () => {
     expect(r.stderr).toContain("--as");
   });
 });
+
+test("interview on a non-TTY exits 1", async () => {
+  const r = await cli("interview");
+  expect(r.code).toBe(1);
+  expect(r.stderr).toContain("interview needs an interactive terminal");
+});
