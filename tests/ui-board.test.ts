@@ -49,6 +49,11 @@ describe("boardPage board view", () => {
 });
 
 describe("boardPage list view", () => {
+  test("table scrolls inside its own keyboard-focusable region (no page overflow on narrow screens)", () => {
+    const out = boardPage(all(), { view: "list", filter: {}, total: 4 }, ctx);
+    expect(out).toContain('<div class="table-scroll" tabindex="0" role="region" aria-label="Applications table"><table');
+  });
+
   test("table with headers and sent cell", () => {
     const out = boardPage(all(), { view: "list", filter: {}, total: 4 }, ctx);
     expect(out).toContain("<table");

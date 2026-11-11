@@ -61,12 +61,12 @@ function sentText(r: BoardRow): string {
 
 function listTable(rows: BoardRow[]): SafeHtml {
   const v = (s: VersionSummary | null) => (s ? html`<span class="version">v${s.version}</span>${s.ready === false ? html` ${readyMark(false)}` : ""}` : "-");
-  return html`<table class="app-table">
+  return html`<div class="table-scroll" tabindex="0" role="region" aria-label="Applications table"><table class="app-table">
 <thead><tr><th scope="col">Date</th><th scope="col">Company</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Resume</th><th scope="col">Cover letter</th><th scope="col">Sent</th></tr></thead>
 <tbody>
 ${rows.map((r) => html`<tr><td class="num">${r.created.slice(0, 10)}</td><td><a href="/app/${r.slug}">${r.company}</a></td><td>${r.role}</td><td>${statusPill(r.status)}</td><td>${v(r.resume)}</td><td>${v(r.cover)}</td><td>${sentText(r)}</td></tr>
 `)}</tbody>
-</table>`;
+</table></div>`;
 }
 
 export function boardPage(rows: BoardRow[], o: Opts, ctx: PageCtx): string {

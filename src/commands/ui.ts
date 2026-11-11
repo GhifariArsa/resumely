@@ -14,7 +14,10 @@ export async function runUi(o: { root: string; port?: number; open: boolean }): 
   const server = startUiServer({ root: o.root, port: o.port, preferredPort: DEFAULT_UI_PORT });
   console.log(`resumely ui running at ${server.url}`);
   console.log("Press Ctrl-C to stop.");
+  let stopping = false;
   const shutdown = async () => {
+    if (stopping) return; // a repeated signal while stop() is pending must not stop twice
+    stopping = true;
     await server.stop();
     process.exit(0);
   };

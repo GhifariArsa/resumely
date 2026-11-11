@@ -21,11 +21,12 @@
 .app-row .doc { display: inline-flex; gap: 6px; }
 .tag-sent { color: var(--s-applied); font-weight: 600; }
 
-.app-table { width: 100%; border-collapse: collapse; }
+.table-scroll { overflow-x: auto; }
+.app-table { width: 100%; min-width: 640px; border-collapse: collapse; }
+.app-table td.num { white-space: nowrap; }
 .app-table th, .app-table td { text-align: left; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
 .app-table th { font-size: 13px; font-weight: 600; color: var(--pencil); }
 
 @media (max-width: 900px) {
   .board-grid { grid-template-columns: 1fr; }
-  .app-table { display: block; overflow-x: auto; }
 }

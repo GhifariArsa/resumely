@@ -605,3 +605,27 @@ describe("ui command", () => {
     }
   }, 20_000);
 });
+
+describe("ui command shutdown", () => {
+  test("repeated SIGTERM still exits 0 once", async () => {
+    const proc = Bun.spawn(["bun", join(import.meta.dir, "../src/cli.ts"), "ui", "--port", "0", "--no-open"], {
+      env: { ...process.env, RESUMELY_HOME: root }, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    try {
+      const reader = proc.stdout.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (!/Ctrl-C/.test(buf)) {
+        const c = await reader.read();
+        if (c.done) break;
+        buf += dec.decode(c.value);
+      }
+      proc.kill("SIGTERM");
+      proc.kill("SIGTERM");
+      expect(await proc.exited).toBe(0);
+      expect(await new Response(proc.stderr).text()).toBe("");
+    } finally {
+      proc.kill("SIGKILL");
+    }
+  }, 20_000);
+});
