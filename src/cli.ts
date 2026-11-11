@@ -14,6 +14,7 @@ import { addNote, findApplication, listApplications } from "./application/store"
 import { exportApplication, setStatus } from "./application/tracking";
 import { confirmParsed, isInteractive, promptDuplicate } from "./commands/prompt";
 import { savedNotReadyReasons } from "./pipeline/version";
+import { formatTemplateList, listTemplates, newTemplate } from "./render/templates";
 import { applyJob, type DocResult, formatApplicationList, renderApplication, resolveOpenTarget } from "./pipeline/apply";
 
 const program = new Command();
@@ -184,6 +185,23 @@ program
     const r = await renderApplication({ root: dataRoot(), query, template: o.template, kind: o.cover ? "cover-letter" : "resume", version: parseVersion(o.version), open: o.open, onProgress: progress });
     printWarnings(r.warnings);
     console.error(`done: ${r.pdfPath}`);
+  });
+
+const templates = program.command("templates").description("List and create resume templates");
+
+templates
+  .command("list")
+  .description("List built-in and user templates")
+  .action(() => console.log(formatTemplateList(listTemplates(resolveDataRoot()))));
+
+templates
+  .command("new <id>")
+  .description("Create a user template by copying a base template")
+  .requiredOption("--from <base>", "id of the template to copy")
+  .action((id: string, o: { from: string }) => {
+    const t = newTemplate(dataRoot(), id, o.from);
+    console.log(`created ${t.dir}`);
+    console.log(`hint: edit ${t.dir}/resume.tex.njk, then: resumely render <app> --template ${id}`);
   });
 
 try {
