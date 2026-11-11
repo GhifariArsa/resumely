@@ -43,6 +43,14 @@ test("latexUrl escapes % and # only", () => {
   expect(latexUrl("https://x.com/a%20b#frag?q=1&r=2_z")).toBe("https://x.com/a\\%20b\\#frag?q=1&r=2_z");
 });
 
+test("modern and minimal split the name on any run of whitespace", () => {
+  const odd = { ...about, name: " Jordan  Q.\tExample " };
+  const modern = renderResume(findTemplate("modern", [builtinTemplatesDir()]), { about: odd, resume });
+  expect(modern).toContain("{\\cvlight\\color{muted}Jordan} {\\bfseries Q. Example}");
+  const minimal = renderResume(findTemplate("minimal", [builtinTemplatesDir()]), { about: odd, resume });
+  expect(minimal).toContain("\\name{Jordan}{Q. Example}");
+});
+
 describe("renderResume", () => {
   const t = findTemplate("classic", [builtinTemplatesDir()]);
   const tex = renderResume(t, { about, resume });

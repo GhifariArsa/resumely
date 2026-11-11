@@ -1,4 +1,4 @@
-((* set parts = about.name.split(" ") *))
+((* set parts = about.name.trim().split(r/\s+/) *))
 \begin{center}
   {\fontsize{30}{34}\selectfont {\cvlight\color{muted}(((parts[0])))}((* if parts.length > 1 *)) {\bfseries ((( parts.slice(1).join(" ") )))}((* endif *))}\par
 ((* if about.headline *))

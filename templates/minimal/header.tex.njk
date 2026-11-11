@@ -1,4 +1,4 @@
-((* set parts = about.name.split(" ") *))
+((* set parts = about.name.trim().split(r/\s+/) *))
 \name{(((parts[0])))}{((( parts.slice(1).join(" ") )))}
 ((* if about.phone *))\phone[mobile]{(((about.phone)))}
 ((* endif *))((* if about.email *))\email{(((about.email)))}
