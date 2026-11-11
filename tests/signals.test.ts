@@ -33,3 +33,22 @@ test("SIGINT during research: exit 130, temp root removed, harness child killed"
   while (alive() && Date.now() < until) await Bun.sleep(50);
   expect(alive()).toBe(false);
 }, 20000);
+
+test("process signal listeners are removed once every handler unregisters, and re-added on the next", async () => {
+  const { onInterrupt } = await import("../src/signals");
+  const before = { int: process.listenerCount("SIGINT"), term: process.listenerCount("SIGTERM") };
+  const off1 = onInterrupt(() => {});
+  const off2 = onInterrupt(() => {});
+  expect(process.listenerCount("SIGINT")).toBe(before.int + 1);
+  expect(process.listenerCount("SIGTERM")).toBe(before.term + 1);
+  off1();
+  expect(process.listenerCount("SIGINT")).toBe(before.int + 1);
+  off2();
+  off2();
+  expect(process.listenerCount("SIGINT")).toBe(before.int);
+  expect(process.listenerCount("SIGTERM")).toBe(before.term);
+  const off3 = onInterrupt(() => {});
+  expect(process.listenerCount("SIGINT")).toBe(before.int + 1);
+  off3();
+  expect(process.listenerCount("SIGINT")).toBe(before.int);
+});
